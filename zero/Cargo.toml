@@ -1,0 +1,13 @@
+[package]
+name = "zero"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zero-proto = { path = "../zero-proto" }
+iroh.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+dirs.workspace = true
+crossterm.workspace = true

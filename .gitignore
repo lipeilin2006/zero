@@ -1,0 +1,22 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Node / Vite
+node_modules/
+dist/
+*.local
+
+# Tauri
+zero-client/src-tauri/target/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

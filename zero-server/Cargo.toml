@@ -1,0 +1,17 @@
+[package]
+name = "zero-server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+zero-proto = { path = "../zero-proto" }
+iroh.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dirs.workspace = true
+portable-pty.workspace = true
+data-encoding.workspace = true
