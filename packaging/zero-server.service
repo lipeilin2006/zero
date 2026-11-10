@@ -1,5 +1,6 @@
-# 参考用的 systemd unit（install-server.sh 会自动生成同样的内容）
-# 手动安装时放到 /etc/systemd/system/zero-server.service
+# 示例 unit：专用用户 zero + /var/lib/zero-server 的写法。
+# 一键脚本会按「执行 sudo 的当前用户 + ~/.local/share/zero-server」生成，
+# 需要专用用户时用：install-server.sh --user zero --data-dir /var/lib/zero-server
 [Unit]
 Description=Zero remote shell server (iroh)
 Documentation=https://github.com/lipeilin2006/zero

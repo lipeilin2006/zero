@@ -43,7 +43,7 @@ npm run tauri dev
 
 ## 部署服务端（一键）
 
-脚本会自动：创建系统用户、安装二进制、生成密钥、写 systemd unit、启动服务。
+脚本会以你执行 `sudo` 的当前用户身份运行服务，自动装二进制、生成密钥、写 systemd unit、启动服务。
 
 ```bash
 # 一行安装（自动下载 release 里的服务端二进制）
@@ -64,15 +64,15 @@ sudo ./install-server.sh --allow-any
 zero --show-id
 
 # 服务端信任它（服务运行中也会自动生效）
-sudo -u zero /usr/local/bin/zero-server trust <client-id> \
-  --key /var/lib/zero-server/secret.key \
-  --allowlist /var/lib/zero-server/authorized_keys
+/usr/local/bin/zero-server trust <client-id> \
+  --key ~/.local/share/zero-server/secret.key \
+  --allowlist ~/.local/share/zero-server/authorized_keys
 ```
 
 取带地址的 ticket（客户端填这个比裸 id 更稳，不依赖发现服务）：
 
 ```bash
-cat /var/lib/zero-server/ticket
+cat ~/.local/share/zero-server/ticket
 ```
 
 卸载：`sudo ./install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。
