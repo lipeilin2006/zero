@@ -8,8 +8,7 @@ use crossterm::event::{
     MouseEventKind,
 };
 use crossterm::{execute, terminal};
-use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
-use iroh_tickets::{Ticket, endpoint::EndpointTicket};
+use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets};
 use tokio::sync::mpsc;
 use zero_proto::{ALPN, ClientMsg, ServerMsg};
 
@@ -483,14 +482,14 @@ fn resolve_target(target: &str) -> Result<(String, Option<String>)> {
         let _ = zero_store::touch(target);
         return Ok((server.endpoint, Some(server.name)));
     }
-    parse_addr(target).with_context(|| {
-        format!("找不到「{target}」：既不是保存的名称，也不是合法的 endpoint id / ticket")
+    parse_endpoint(target).with_context(|| {
+        format!("找不到「{target}」：既不是保存的名称，也不是合法的 endpoint id")
     })?;
     Ok((target.trim().to_string(), None))
 }
 
 fn cmd_add(name: &str, endpoint: &str, tags: Vec<String>) -> Result<()> {
-    parse_addr(endpoint).context("endpoint 格式不对（应为 endpoint id 或 ticket）")?;
+    parse_endpoint(endpoint).context("endpoint 格式不对")?;
     let server = zero_store::add(name, endpoint.trim(), tags)?;
     println!("已保存：{}", server.name);
     println!("endpoint：{}", server.endpoint);
@@ -523,16 +522,12 @@ fn short_endpoint(endpoint: &str) -> String {
     }
 }
 
-/// 支持两种写法：`...` 这种 ticket（带地址），或裸 endpoint id。
-fn parse_addr(value: &str) -> Result<EndpointAddr> {
-    let value = value.trim();
-    if let Ok(ticket) = EndpointTicket::decode_string(value) {
-        return Ok(ticket.endpoint_addr().clone());
-    }
-    let id = value
+/// 只接受裸 endpoint id。
+fn parse_endpoint(value: &str) -> Result<EndpointId> {
+    value
+        .trim()
         .parse()
-        .map_err(|_| anyhow::anyhow!("既不是 endpoint id，也不是合法的 ticket"))?;
-    Ok(EndpointAddr::new(id))
+        .map_err(|_| anyhow::anyhow!("不是合法的 endpoint id"))
 }
 
 fn cmd_list(json: bool) -> Result<()> {
@@ -617,7 +612,7 @@ async fn connect(
 ) -> Result<()> {
     let (endpoint_value, name) = resolve_target(target)?;
     let secret = load_or_create_secret(&key.unwrap_or_else(key_path))?;
-    let addr = parse_addr(&endpoint_value)?;
+    let server_id = parse_endpoint(&endpoint_value)?;
 
     if let Some(name) = name {
         eprintln!("connecting to {name}...");
@@ -633,13 +628,11 @@ async fn connect(
     // 裸 endpoint id 要靠发现服务拿地址，刚启动时可能还没有记录，重试一下。
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(35);
     let connection = loop {
-        match endpoint.connect(addr.clone(), ALPN).await {
+        match endpoint.connect(server_id, ALPN).await {
             Ok(connection) => break connection,
             Err(error) => {
                 if std::time::Instant::now() >= deadline {
-                    return Err(error).context(
-                        "连接失败；如果服务器刚启动可以等几秒再试，或改用服务端日志里的 ticket",
-                    );
+                    return Err(error).context("连接失败；如果服务器刚启动，可以等几秒再试");
                 }
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }

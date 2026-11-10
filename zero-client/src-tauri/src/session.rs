@@ -10,8 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use iroh::{endpoint::presets, Endpoint, EndpointAddr, SecretKey};
-use iroh_tickets::{endpoint::EndpointTicket, Ticket};
+use iroh::{endpoint::presets, Endpoint, EndpointAddr, EndpointId, SecretKey};
 use serde::Serialize;
 use std::time::Instant;
 use tauri::AppHandle;
@@ -97,7 +96,7 @@ impl SessionManager {
         .await
         .map_err(|_| anyhow!("初始化网络超时（检查网络或防火墙是否拦了 UDP）"))?
         .context("绑定 iroh 端点失败")?;
-        // 只等一小会儿 relay：ticket 自带地址，裸 id 也能在 connect 里再等。
+        // 只等一小会儿 relay：地址解析交给 connect 重试。
         let _ = timeout(Duration::from_secs(2), endpoint.online()).await;
         *guard = Some(endpoint.clone());
         Ok(endpoint)
@@ -251,7 +250,7 @@ impl SessionManager {
 }
 
 /// 连接带重试：裸 endpoint id 要靠发现服务拿地址，服务端刚启动时
-/// 可能还查不到（"No addressing information"）。ticket 自带地址，基本一次就成。
+/// 可能还查不到（"No addressing information"），所以需要重试。
 async fn connect_with_retry(
     endpoint: &Endpoint,
     addr: EndpointAddr,
@@ -267,16 +266,12 @@ async fn connect_with_retry(
             Ok(Ok(connection)) => return Ok(connection),
             Ok(Err(error)) => {
                 if Instant::now() >= deadline {
-                    return Err(anyhow!(
-                        "连接失败：{error}\n如果服务器刚启动，等几秒再试；或直接服务端日志里的 ticket（带地址）会更稳。"
-                    ));
+                    return Err(anyhow!("连接失败：{error}\n如果服务器刚启动，等几秒再试。"));
                 }
             }
             Err(_) => {
                 if Instant::now() >= deadline {
-                    return Err(anyhow!(
-                        "连接超时：服务器不可达或地址没有解析出来。\n可以换成服务端日志里的 ticket（带地址）再试。"
-                    ));
+                    return Err(anyhow!("连接超时：服务器不可达或发现服务暂时没有记录。"));
                 }
             }
         }
@@ -284,18 +279,15 @@ async fn connect_with_retry(
     }
 }
 
-/// 支持两种写法：`zero://...` 这种 ticket（带地址），或裸 endpoint id。
+/// 只接受裸 endpoint id。
 fn parse_addr(value: &str) -> Result<EndpointAddr> {
     let value = value.trim();
     if value.is_empty() {
         bail!("endpoint 不能为空");
     }
-    if let Ok(ticket) = EndpointTicket::decode_string(value) {
-        return Ok(ticket.endpoint_addr().clone());
-    }
-    let id = value
+    let id: EndpointId = value
         .parse()
-        .map_err(|_| anyhow!("既不是 endpoint id，也不是合法的 ticket"))?;
+        .map_err(|_| anyhow!("不是合法的 endpoint id"))?;
     Ok(EndpointAddr::new(id))
 }
 

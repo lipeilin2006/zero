@@ -53,10 +53,8 @@ zero-server untrust <client-id>    # 取消信任
 
 客户端 id 用 `zero --show-id` 取。
 
-服务端启动日志里还有一行 `server ticket: ...`（带地址的 ticket）。
-客户端「Endpoint ID」那一栏既接受裸 endpoint id，也接受这个 ticket；
-ticket 不依赖发现服务，刚启动的服务器用 ticket 能立刻连上。
-也可以单独打印：`zero-server ticket`。
+客户端「Endpoint ID」那一栏只接受服务端的 endpoint id。
+服务端刚启动、发现记录还没同步时，客户端会自动重试一段时间。
 
 CLI 也可以管理服务器列表（和 GUI 共享）：
 
@@ -73,7 +71,7 @@ zero dev                           # 直接按名字连接
 两个环境变量，只在开发/排查时用：
 
 - `ZERO_UI_LOG=/tmp/ui.log`：前端把关键步骤（打开会话、xterm 挂载、首个输出/输入）追加到文件
-- `ZERO_AUTO_ENDPOINT=<ticket 或 endpoint id>`：启动后自动打开一个终端，方便无头验证
+- `ZERO_AUTO_ENDPOINT=<endpoint id>`：启动后自动打开一个终端，方便无头验证
 
 配合 `xvfb-run` 可以在没有显示器的机器上跑起来截图。
 

@@ -5,7 +5,6 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets};
-use iroh_tickets::{Ticket, endpoint::EndpointTicket};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
@@ -45,13 +44,6 @@ enum Command {
 
     /// 打印服务器自己的 endpoint id
     Id,
-
-    /// 打印带地址的 ticket（推荐客户端用这个，不依赖发现服务）
-    Ticket {
-        /// 现场 bind 生成（会顶掉正在运行的同 key 实例，通常不需要）
-        #[arg(long)]
-        bind: bool,
-    },
 }
 
 #[derive(Parser, Debug, Default)]
@@ -81,7 +73,6 @@ struct RunArgs {
 struct ServerConfig {
     key: Option<PathBuf>,
     allowlist: Option<PathBuf>,
-    ticket: Option<PathBuf>,
     shell: Option<String>,
     locale: Option<String>,
     #[serde(default)]
@@ -91,7 +82,6 @@ struct ServerConfig {
 struct Paths {
     key: PathBuf,
     allowlist: PathBuf,
-    ticket: PathBuf,
 }
 
 /// 各平台默认配置文件位置。
@@ -144,7 +134,6 @@ fn resolve_paths(config_path: &Path, config: &ServerConfig) -> Paths {
             .allowlist
             .clone()
             .unwrap_or_else(|| dir.join("authorized_keys")),
-        ticket: config.ticket.clone().unwrap_or_else(|| dir.join("ticket")),
     }
 }
 
@@ -416,7 +405,7 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // 日志走 stderr：stdout 留给 id / ticket / trusted 这些可被脚本消费的输出。
+    // 日志走 stderr：stdout 留给 id / trusted 这些可被脚本消费的输出。
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(
@@ -440,39 +429,7 @@ async fn main() -> Result<()> {
             println!("{}", secret.public());
             Ok(())
         }
-        Some(Command::Ticket { bind }) => print_ticket(&paths, bind).await,
     }
-}
-
-/// 打印带地址的 ticket。
-///
-/// 默认读服务写下的 ticket 文件——不能为了打印 ticket 再 bind 一个相同 key 的
-/// endpoint，那会把正在跑的服务从 relay 上挤掉。
-async fn print_ticket(paths: &Paths, bind: bool) -> Result<()> {
-    if !bind {
-        if let Ok(text) = std::fs::read_to_string(&paths.ticket) {
-            let ticket = text.trim();
-            if EndpointTicket::decode_string(ticket).is_ok() {
-                println!("{ticket}");
-                return Ok(());
-            }
-        }
-        bail!(
-            "还没有 {}。先启动服务（启动时会写这个文件），\n\
-             或者用 zero-server ticket --bind 现场生成（注意：会顶掉正在运行的同 key 实例）。",
-            paths.ticket.display()
-        );
-    }
-
-    let secret = load_or_create_secret(&paths.key)?;
-    let endpoint = Endpoint::builder(presets::N0)
-        .secret_key(secret)
-        .bind()
-        .await?;
-    endpoint.online().await;
-    println!("{}", EndpointTicket::new(endpoint.addr()).encode_string());
-    endpoint.close().await;
-    Ok(())
 }
 
 async fn run(
@@ -523,17 +480,7 @@ async fn run(
     endpoint.online().await;
     let addr = endpoint.addr();
     info!("listening. EndpointAddr: {addr:?}");
-    let ticket = EndpointTicket::new(addr).encode_string();
-    // 落盘一份：`zero-server ticket` 直接读它。
-    if let Some(parent) = paths.ticket.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let tmp = paths.ticket.with_extension("tmp");
-    if std::fs::write(&tmp, &ticket).is_ok() {
-        let _ = std::fs::rename(&tmp, &paths.ticket);
-    }
-    info!("server ticket: {ticket}");
-    info!("ticket file: {}", paths.ticket.display());
+    info!("clients can connect with: zero {endpoint_id}");
 
     let shell = args
         .shell
@@ -786,18 +733,16 @@ mod tests {
             paths.allowlist,
             PathBuf::from("/etc/zero/server/authorized_keys")
         );
-        assert_eq!(paths.ticket, PathBuf::from("/etc/zero/server/ticket"));
     }
 
     #[test]
     fn config_can_override_paths_and_flags() {
         let config: ServerConfig =
-            serde_json::from_str(r#"{"key":"/k","allowlist":"/a","ticket":"/t","allow_all":true}"#)
+            serde_json::from_str(r#"{"key":"/k","allowlist":"/a","allow_all":true}"#)
                 .unwrap();
         let paths = resolve_paths(Path::new("/cfg/config.json"), &config);
         assert_eq!(paths.key, PathBuf::from("/k"));
         assert_eq!(paths.allowlist, PathBuf::from("/a"));
-        assert_eq!(paths.ticket, PathBuf::from("/t"));
         assert!(config.allow_all.unwrap_or(false));
     }
 

@@ -540,7 +540,7 @@ onUnmounted(() => {
           <n-input v-model:value="draft.name" placeholder="例如：开发机" />
         </n-form-item>
         <n-form-item label="Endpoint ID">
-          <n-input v-model:value="draft.endpoint" placeholder="endpoint id 或 ticket" />
+          <n-input v-model:value="draft.endpoint" placeholder="服务端 endpoint id" />
         </n-form-item>
         <n-form-item label="标签（逗号分隔）">
           <n-input v-model:value="draft.tags" placeholder="开发, Linux, 生产" />

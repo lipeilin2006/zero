@@ -2449,20 +2449,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroh-tickets"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da53233419ca36bf521ed45683b7748366f9b233032891eefc2d70567a84ac54"
-dependencies = [
- "data-encoding",
- "derive_more",
- "iroh-base",
- "n0-error",
- "postcard",
- "serde",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6802,14 +6788,13 @@ dependencies = [
 
 [[package]]
 name = "zero"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "clap",
  "crossterm",
  "dirs 6.0.0",
  "iroh",
- "iroh-tickets",
  "serde_json",
  "tokio",
  "zero-proto",
@@ -6818,13 +6803,12 @@ dependencies = [
 
 [[package]]
 name = "zero-client"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "dirs 6.0.0",
  "iroh",
- "iroh-tickets",
  "serde",
  "tauri",
  "tauri-build",
@@ -6835,7 +6819,7 @@ dependencies = [
 
 [[package]]
 name = "zero-proto"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "postcard",
  "serde",
@@ -6844,12 +6828,11 @@ dependencies = [
 
 [[package]]
 name = "zero-server"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "clap",
  "iroh",
- "iroh-tickets",
  "portable-pty",
  "serde",
  "serde_json",
@@ -6861,7 +6844,7 @@ dependencies = [
 
 [[package]]
 name = "zero-store"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

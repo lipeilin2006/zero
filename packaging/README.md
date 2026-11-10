@@ -15,9 +15,9 @@ sudo ./install-server.sh --bin ./target/release/zero-server
 
 1. 创建专用系统用户 `zero`（已存在则复用）
 2. 安装二进制到 `/usr/local/bin/zero-server`
-3. 配置目录 `/etc/zero/server`：`config.json`、`secret.key`、`authorized_keys`、`ticket`
+3. 配置目录 `/etc/zero/server`：`config.json`、`secret.key`、`authorized_keys`
 4. 写 `/etc/systemd/system/zero-server.service` 并 `enable --now`
-5. 打印服务端 id 和 ticket
+5. 打印服务端 endpoint id
 
 ## 配置文件
 
@@ -27,7 +27,6 @@ sudo ./install-server.sh --bin ./target/release/zero-server
 {
   "key": "/etc/zero/server/secret.key",
   "allowlist": "/etc/zero/server/authorized_keys",
-  "ticket": "/etc/zero/server/ticket",
   "shell": null,
   "locale": null,
   "allow_all": false
@@ -48,7 +47,6 @@ zero-server id
 zero-server trust <client-id>
 zero-server trusted
 zero-server untrust <client-id>
-zero-server ticket
 ```
 
 客户端 id 用 `zero --show-id` 取；服务运行中改 allowlist 会自动生效。

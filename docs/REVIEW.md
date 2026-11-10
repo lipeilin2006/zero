@@ -11,9 +11,9 @@
 | `zero` | 服务器正常关连接时打印 `Error: connection lost` 并退出码非 0 | 当成正常断开处理 |
 | `zero-client` | 内嵌终端做好了之后，`launch_zero` 和 tauri-plugin-opener 已经没人用 | 删掉命令、插件、权限和不用的 JS 依赖 |
 | 工程 | 没有根 README、没有部署脚本、没有 CI | 补 README、packaging/install-server.sh、GitHub Actions |
-| `zero-server` | `ticket` 为了拿地址会用同一个 key 再 bind 一个 endpoint，把正在运行的服务从 relay 挤掉（日志：Another endpoint connected with the same endpoint id） | 服务启动时把 ticket 写到数据目录，`ticket` 直接读文件；`--bind` 才现场生成 |
+| `zero-server` | `ticket` 为了拿地址会用同一个 key 再 bind 一个 endpoint，把正在运行的服务从 relay 挤掉 | 已彻底移除 ticket，只保留 endpoint id + 发现服务重试 |
 | `zero-server` | 沙箱 `RestrictAddressFamilies` 少了 AF_NETLINK，iroh 网络监控会告警 | 补上 AF_NETLINK |
-| `zero-server` | 日志默认写 stdout，会污染 `id` / `ticket` 的脚本输出 | 日志改到 stderr |
+| `zero-server` | 日志默认写 stdout，会污染 `id` 的脚本输出 | 日志改到 stderr |
 | `zero-client` | xterm 用 `allowProposedApi: false` 却加载 unicode11（属于 proposed API），`term.unicode` 直接抛错，窗格空白且无法输入 | 打开 allowProposedApi，初始化包 try/catch，失败时显示原因 |
 | `zero-client` | 首屏提示符可能在 xterm 挂载前就到达，被丢掉 | 未挂载前先缓存输出（上限 512KB），挂载后补写 |
 | `zero-client` | 第一个标签页挂载时终端区域还是 0 尺寸（刚从 display:none 转可见），xterm 按 0 尺寸初始化，之后不渲染也收不到输入 | 等容器有真实尺寸再创建 xterm，另加 3 秒兜底 |

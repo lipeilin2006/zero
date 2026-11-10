@@ -185,7 +185,6 @@ write_config() {
   content="{
   \"key\": \"$CONFIG_DIR/secret.key\",
   \"allowlist\": \"$CONFIG_DIR/authorized_keys\",
-  \"ticket\": \"$CONFIG_DIR/ticket\",
   \"allow_all\": $allow
 }"
   if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -295,26 +294,14 @@ WantedBy=multi-user.target
 
   echo
   echo "==> 部署完成"
-  echo "服务端 id："
+  echo "客户端填这个 endpoint id："
   as_user "$PREFIX/zero-server" -c "$CONFIG_FILE" id
-  echo
-  echo "客户端填这个 ticket："
-  for _ in $(seq 1 120); do
-    [[ -s "$CONFIG_DIR/ticket" ]] && break
-    sleep 0.5
-  done
-  if [[ -s "$CONFIG_DIR/ticket" ]]; then
-    cat "$CONFIG_DIR/ticket"
-  else
-    echo "（还没生成，稍后看：cat $CONFIG_DIR/ticket）"
-  fi
   echo
   echo "常用命令（全局安装，不用带 -c）："
   echo "  zero-server id                    # 服务端 id"
   echo "  zero-server trust <client-id>     # 信任客户端"
   echo "  zero-server trusted               # 查看白名单"
   echo "  zero-server untrust <client-id>   # 取消信任"
-  echo "  zero-server ticket                # 打印 ticket"
   echo "  journalctl -u $SERVICE_NAME -f    # 看日志"
   echo
   echo "卸载：./install-server.sh --uninstall [--purge]"

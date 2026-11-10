@@ -73,14 +73,13 @@ Linux 默认 `/etc/zero/server/config.json`：
 {
   "key": "/etc/zero/server/secret.key",
   "allowlist": "/etc/zero/server/authorized_keys",
-  "ticket": "/etc/zero/server/ticket",
   "shell": null,
   "locale": null,
   "allow_all": false
 }
 ```
 
-- 文件里没写的字段会用配置文件同目录下的默认值（`secret.key`、`authorized_keys`、`ticket`）
+- 文件里没写的路径会用配置文件同目录下的默认值（`secret.key`、`authorized_keys`）
 - 改完配置：`sudo systemctl restart zero-server`
 - 临时换一份配置：`zero-server -c /path/to/config.json <命令>`
 - 其它平台默认位置：macOS `/Library/Application Support/zero/server/config.json`，
@@ -95,7 +94,6 @@ zero-server id                    # 服务端 id
 zero-server trust <client-id>     # 信任客户端（运行中自动生效）
 zero-server trusted               # 查看白名单
 zero-server untrust <client-id>   # 取消信任
-zero-server ticket                # 带地址的 ticket
 ```
 
 客户端 id 用 `zero --show-id` 取。
@@ -110,7 +108,7 @@ zero-server ticket                # 带地址的 ticket
 
 ```bash
 zero --show-id                 # 打印本机客户端 id
-zero add dev <ticket|id>       # 保存服务器
+zero add dev <id>              # 保存服务器（endpoint id）
 zero list                      # 列表
 zero dev                       # 按名字连接
 zero rm dev                    # 删除
