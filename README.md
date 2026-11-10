@@ -50,39 +50,57 @@ npm run tauri dev
 
 ## 部署服务端（一键）
 
-脚本会创建（或复用）专用的 `zero` 系统用户，以它身份运行服务，自动装二进制、生成密钥、写 systemd unit、启动服务。
+脚本做全局安装：二进制到 `/usr/local/bin`，配置和密钥统一放 `/etc/zero/server`，
+创建专用 `zero` 用户和 systemd 服务。
 
 ```bash
-# 一行安装（自动下载 release 里的服务端二进制）
+# 一行安装（自动下载当前架构的服务端）
 curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh \
-  | sudo bash -s -- --download
+  | sudo bash
 
-# 或者在仓库根目录，用本地构建好的二进制
+# 或者用本地构建的二进制
 sudo ./install-server.sh --bin ./target/release/zero-server
 
 # 调试：跳过白名单
 sudo ./install-server.sh --allow-any
 ```
 
-安装完成后脚本会打印服务器 endpoint id。把客户端的 id 加进白名单：
+### 配置文件
 
-```bash
-# 客户端取 id
-zero --show-id
+Linux 默认 `/etc/zero/server/config.json`：
 
-# 服务端信任它（服务运行中也会自动生效）
-sudo -u zero /usr/local/bin/zero-server trust <client-id> \
-  --key /var/lib/zero-server/secret.key \
-  --allowlist /var/lib/zero-server/authorized_keys
+```json
+{
+  "key": "/etc/zero/server/secret.key",
+  "allowlist": "/etc/zero/server/authorized_keys",
+  "ticket": "/etc/zero/server/ticket",
+  "shell": null,
+  "locale": null,
+  "allow_all": false
+}
 ```
 
-取带地址的 ticket（客户端填这个比裸 id 更稳，不依赖发现服务）：
+- 文件里没写的字段会用配置文件同目录下的默认值（`secret.key`、`authorized_keys`、`ticket`）
+- 改完配置：`sudo systemctl restart zero-server`
+- 临时换一份配置：`zero-server -c /path/to/config.json <命令>`
+- 其它平台默认位置：macOS `/Library/Application Support/zero/server/config.json`，
+  Windows `%ProgramData%\zero\server\config.json`
+
+### 管理命令
+
+全局安装后不用带 `-c`：
 
 ```bash
-cat /var/lib/zero-server/ticket
+zero-server id                    # 服务端 id
+zero-server trust <client-id>     # 信任客户端（运行中自动生效）
+zero-server trusted               # 查看白名单
+zero-server untrust <client-id>   # 取消信任
+zero-server ticket                # 带地址的 ticket
 ```
 
-卸载：`sudo ./install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。
+客户端 id 用 `zero --show-id` 取。
+
+卸载：`sudo ./install-server.sh --uninstall`（加 `--purge` 连配置目录和用户一起删）。
 
 ## 客户端
 

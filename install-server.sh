@@ -1,26 +1,24 @@
 #!/usr/bin/env bash
 #
-# zero-server 一键部署：
-#   - 创建系统用户
-#   - 安装二进制到 /usr/local/bin
-#   - 生成服务端密钥和 authorized_keys
-#   - 写 systemd unit 并启动
+# zero-server 一键全局安装（systemd）：
+#   - 安装到 /usr/local/bin
+#   - 配置和密钥统一放 /etc/zero/server
+#   - 自动创建专用 zero 用户、systemd unit 并启动
 #
 # 用法：
 #   sudo ./install-server.sh [选项]
 #
 # 选项：
-#   --bin <path>        指定 zero-server 二进制（默认找 ./zero-server 或 target/release）
-#   --download          没有本地二进制时从 GitHub Release 下载（默认就会尝试下载）
-#   --no-download       只用本地二进制，不联网
+#   --bin <path>        指定本地 zero-server 二进制
+#   --config-dir <path> 配置目录（默认 /etc/zero/server）
+#   --user <name>       运行用户（默认 zero，不存在会自动创建）
 #   --arch <arch>       覆盖架构检测（x86_64 / aarch64）
-#   --user <name>       运行用户（默认 zero，没有会自动创建）
-#   --data-dir <path>   数据目录（默认 /var/lib/zero-server）
+#   --version <tag>     指定下载版本（默认 latest）
 #   --allow-any         调试用：允许任何客户端（默认走白名单）
-#   --download          没有本地二进制时，从 GitHub Release 下载（默认 latest）
-#   --version <tag>     配合 --download 指定版本（例如 v0.1.0）
-#   --uninstall         停止并移除服务
-#   --purge             卸载时连数据目录一起删
+#   --download          从 GitHub Release 下载（默认行为，可省略）
+#   --no-download       只用本地二进制，不联网
+#   --uninstall         停止并移除服务和二进制
+#   --purge             卸载时连配置目录和用户一起删
 #   --dry-run           只打印将要执行的命令
 #   -h, --help          帮助
 
@@ -29,8 +27,9 @@ set -euo pipefail
 PREFIX="/usr/local/bin"
 SERVICE_NAME="zero-server"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
-DATA_DIR=""
-RUN_USER=""
+CONFIG_DIR="/etc/zero/server"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+RUN_USER="zero"
 BIN_SRC=""
 ALLOW_ANY=0
 DOWNLOAD=1
@@ -42,22 +41,22 @@ DRY_RUN=0
 
 usage() {
   cat <<'USAGE'
-zero-server 一键部署（systemd）
+zero-server 一键全局安装（systemd）
 
 用法：
   sudo ./install-server.sh [选项]
 
 选项：
   --bin <path>        指定本地 zero-server 二进制
-  --user <name>       运行用户（默认 zero，没有会自动创建）
-  --data-dir <path>   数据目录（默认 /var/lib/zero-server）
-  --arch <arch>       覆盖架构检测（x86_64 / aarch64）
+  --config-dir <path> 配置目录（默认 /etc/zero/server）
+  --user <name>       运行用户（默认 zero，不存在会自动创建）
+  --arch <arch>       覆盖架构检测（x86_64 / aarch64，默认自动）
   --version <tag>     指定下载版本（默认 latest）
   --allow-any         调试用：允许任何客户端（默认走白名单）
-  --download          从 GitHub Release 下载（默认行为，这个参数可省略）
+  --download          从 GitHub Release 下载（默认行为，可省略）
   --no-download       只用本地二进制，不联网
-  --uninstall         停止并移除服务
-  --purge             卸载时连数据目录一起删
+  --uninstall         停止并移除服务和二进制
+  --purge             卸载时连配置目录和用户一起删
   --dry-run           只打印将要执行的命令
   -h, --help          帮助
 USAGE
@@ -66,13 +65,13 @@ USAGE
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --bin) BIN_SRC="${2:?--bin 需要参数}"; shift 2 ;;
+    --config-dir) CONFIG_DIR="${2:?--config-dir 需要参数}"; CONFIG_FILE="$CONFIG_DIR/config.json"; shift 2 ;;
     --user) RUN_USER="${2:?--user 需要参数}"; shift 2 ;;
-    --data-dir) DATA_DIR="${2:?--data-dir 需要参数}"; shift 2 ;;
+    --arch) ARCH_OVERRIDE="${2:?--arch 需要参数}"; shift 2 ;;
+    --version) VERSION="${2:?--version 需要参数}"; shift 2 ;;
     --allow-any) ALLOW_ANY=1; shift ;;
     --download) DOWNLOAD=1; shift ;;
     --no-download) DOWNLOAD=0; shift ;;
-    --arch) ARCH_OVERRIDE="${2:?--arch 需要参数}"; shift 2 ;;
-    --version) VERSION="${2:?--version 需要参数}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -90,33 +89,28 @@ run() {
 }
 
 need_root() {
-  if [[ "${EUID}" -ne 0 ]]; then
-    echo "需要 root 权限，请用 sudo 运行。" >&2
+  [[ "${EUID}" -eq 0 ]] || { echo "需要 root 权限，请用 sudo 运行。" >&2; exit 1; }
+}
+
+need_systemd() {
+  command -v systemctl >/dev/null 2>&1 || {
+    echo "没有 systemctl，这个脚本只支持 systemd 系统。" >&2
     exit 1
-  fi
+  }
 }
 
 resolve_user() {
-  if [[ -z "$RUN_USER" ]]; then
-    RUN_USER="zero"
-  fi
-  if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="/var/lib/zero-server"
-  fi
   if ! id "$RUN_USER" >/dev/null 2>&1; then
-    NOLOGIN="/usr/sbin/nologin"
-    [[ -x "$NOLOGIN" ]] || NOLOGIN="/sbin/nologin"
-    run useradd --system --home-dir "$DATA_DIR" --shell "$NOLOGIN" "$RUN_USER"
+    local nologin="/usr/sbin/nologin"
+    [[ -x "$nologin" ]] || nologin="/sbin/nologin"
+    run useradd --system --home-dir "$CONFIG_DIR" --shell "$nologin" "$RUN_USER"
   fi
   if id "$RUN_USER" >/dev/null 2>&1; then
     RUN_GROUP="$(id -gn "$RUN_USER")"
-    RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6 || true)"
   else
     # dry-run 时用户还没创建
     RUN_GROUP="$RUN_USER"
-    RUN_HOME="$DATA_DIR"
   fi
-  [[ -n "$RUN_HOME" ]] || RUN_HOME="$DATA_DIR"
 }
 
 as_user() {
@@ -129,38 +123,20 @@ as_user() {
   fi
 }
 
-need_systemd() {
-  if ! command -v systemctl >/dev/null 2>&1; then
-    echo "没有 systemctl，这个脚本只支持 systemd 系统。" >&2
-    exit 1
+detect_arch() {
+  if [[ -n "$ARCH_OVERRIDE" ]]; then
+    echo "$ARCH_OVERRIDE"
+    return
   fi
-}
-
-uninstall() {
-  need_root
-  need_systemd
-  resolve_user
-  echo "==> 停止并移除 $SERVICE_NAME"
-  run systemctl disable --now "$SERVICE_NAME" || true
-  run rm -f "$SERVICE_PATH"
-  run systemctl daemon-reload
-  run rm -f "$PREFIX/zero-server"
-  if [[ "$PURGE" -eq 1 ]]; then
-    echo "==> 删除数据目录 $DATA_DIR"
-    run rm -rf "$DATA_DIR"
-    if id "$RUN_USER" >/dev/null 2>&1; then
-      run userdel "$RUN_USER" || true
-    fi
-  else
-    echo "保留数据目录：$DATA_DIR（加 --purge 可一起删）"
-  fi
-  echo "已卸载。"
+  case "$(uname -m)" in
+    x86_64|amd64) echo "x86_64" ;;
+    aarch64|arm64) echo "aarch64" ;;
+    *) echo "unsupported:$(uname -m)" ;;
+  esac
 }
 
 locate_binary() {
-  if [[ -n "$BIN_SRC" ]]; then
-    return
-  fi
+  [[ -n "$BIN_SRC" ]] && return
   for candidate in ./zero-server ./target/release/zero-server; do
     if [[ -f "$candidate" ]]; then
       BIN_SRC="$candidate"
@@ -169,43 +145,28 @@ locate_binary() {
   done
 }
 
-detect_arch() {
-  if [[ -n "$ARCH_OVERRIDE" ]]; then
-    echo "$ARCH_OVERRIDE"
-    return
-  fi
-  local machine
-  machine="$(uname -m)"
-  case "$machine" in
-    x86_64|amd64) echo "x86_64" ;;
-    aarch64|arm64) echo "aarch64" ;;
-    *) echo "unsupported:$machine" ;;
-  esac
-}
-
 download_binary() {
-  local arch
+  local arch tag url tmp
   arch="$(detect_arch)"
   if [[ "$arch" == unsupported:* ]]; then
-    echo "不支持的架构：${arch#unsupported:}。请从源码构建：cargo build --release -p zero-server" >&2
+    echo "不支持的架构：${arch#unsupported:}。请从源码构建。" >&2
     exit 1
   fi
   if [[ "$(uname -s)" != "Linux" ]]; then
-    echo "一键部署只支持 Linux（当前 $(uname -s)），其它平台请从源码构建。" >&2
+    echo "一键部署只支持 Linux（当前 $(uname -s)）。" >&2
     exit 1
   fi
-  command -v curl >/dev/null 2>&1 || {
-    echo "需要 curl 才能下载" >&2
-    exit 1
-  }
-  local tag="$VERSION"
+  command -v curl >/dev/null 2>&1 || { echo "需要 curl 才能下载" >&2; exit 1; }
+
+  tag="$VERSION"
   if [[ "$tag" == "latest" ]]; then
-    tag="$(curl -fsSL https://api.github.com/repos/lipeilin2006/zero/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
+    tag="$(curl -fsSL https://api.github.com/repos/lipeilin2006/zero/releases/latest \
+      | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
   fi
   [[ -n "$tag" ]] || { echo "拿不到最新版本号" >&2; exit 1; }
-  local url="https://github.com/lipeilin2006/zero/releases/download/${tag}/zero-server-${tag}-${arch}-linux.tar.gz"
+
+  url="https://github.com/lipeilin2006/zero/releases/download/${tag}/zero-server-${tag}-${arch}-linux.tar.gz"
   echo "==> 下载 $url"
-  local tmp
   tmp="$(mktemp -d)"
   curl -fL "$url" -o "$tmp/zero-server.tar.gz"
   tar -xzf "$tmp/zero-server.tar.gz" -C "$tmp"
@@ -213,9 +174,34 @@ download_binary() {
   DOWNLOAD_DIR="$tmp"
 }
 
+write_config() {
+  if [[ -f "$CONFIG_FILE" ]]; then
+    echo "配置已存在，保留：$CONFIG_FILE"
+    return
+  fi
+  local allow=false
+  [[ "$ALLOW_ANY" -eq 1 ]] && allow=true
+  local content
+  content="{
+  \"key\": \"$CONFIG_DIR/secret.key\",
+  \"allowlist\": \"$CONFIG_DIR/authorized_keys\",
+  \"ticket\": \"$CONFIG_DIR/ticket\",
+  \"allow_all\": $allow
+}"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "+ write $CONFIG_FILE:"
+    echo "$content"
+  else
+    printf '%s\n' "$content" > "$CONFIG_FILE"
+    chown "root:$RUN_GROUP" "$CONFIG_FILE"
+    chmod 0640 "$CONFIG_FILE"
+  fi
+}
+
 install_service() {
   need_root
   need_systemd
+  resolve_user
   locate_binary
 
   if [[ -z "$BIN_SRC" && "$DOWNLOAD" -eq 1 ]]; then
@@ -226,50 +212,38 @@ install_service() {
       download_binary
     fi
   fi
-
   if [[ -z "$BIN_SRC" ]]; then
-    echo "找不到 zero-server 二进制。" >&2
-    echo "先构建：cargo build --release -p zero-server" >&2
-    echo "或用 --bin 指定路径；默认会尝试从 GitHub Release 下载，离线时加 --no-download。" >&2
-    exit 1
-  fi
-  if [[ ! -f "$BIN_SRC" && "$DRY_RUN" -eq 0 ]]; then
-    echo "二进制不存在：$BIN_SRC" >&2
+    echo "找不到 zero-server 二进制：用 --bin 指定，或先构建。" >&2
     exit 1
   fi
 
-  resolve_user
-  echo "==> 运行用户 $RUN_USER（$RUN_HOME）/ 数据目录 $DATA_DIR"
-  run install -d -m 0750 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
+  echo "==> 配置目录 $CONFIG_DIR（用户 $RUN_USER）"
+  run install -d -m 0750 -o "$RUN_USER" -g "$RUN_GROUP" "$CONFIG_DIR"
 
-  echo "==> 安装二进制"
+  echo "==> 安装二进制到 $PREFIX/zero-server"
   run install -m 0755 "$BIN_SRC" "$PREFIX/zero-server"
 
-  echo "==> 初始化密钥和 allowlist"
-  run touch "$DATA_DIR/authorized_keys"
-  run chown "$RUN_USER:$RUN_GROUP" "$DATA_DIR/authorized_keys"
-  run chmod 0600 "$DATA_DIR/authorized_keys"
-  run chown "$RUN_USER:$RUN_GROUP" "$DATA_DIR"
-  run chmod 0750 "$DATA_DIR"
+  echo "==> 写配置"
+  write_config
 
-  if [[ ! -f "$DATA_DIR/secret.key" ]]; then
+  echo "==> 初始化 allowlist / secret key"
+  run touch "$CONFIG_DIR/authorized_keys"
+  run chown "$RUN_USER:$RUN_GROUP" "$CONFIG_DIR/authorized_keys"
+  run chmod 0600 "$CONFIG_DIR/authorized_keys"
+
+  if [[ ! -f "$CONFIG_DIR/secret.key" ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      echo "+ as $RUN_USER: $PREFIX/zero-server id --key $DATA_DIR/secret.key"
+      echo "+ as $RUN_USER: $PREFIX/zero-server -c $CONFIG_FILE id"
     else
-      as_user "$PREFIX/zero-server" id --key "$DATA_DIR/secret.key" >/dev/null
+      as_user "$PREFIX/zero-server" -c "$CONFIG_FILE" id >/dev/null
     fi
   fi
-  run chown "$RUN_USER:$RUN_GROUP" "$DATA_DIR/secret.key"
-  run chmod 0600 "$DATA_DIR/secret.key"
+  run chown "$RUN_USER:$RUN_GROUP" "$CONFIG_DIR/secret.key"
+  run chmod 0600 "$CONFIG_DIR/secret.key"
 
-  if [[ "$ALLOW_ANY" -eq 1 ]]; then
-    EXEC_ARGS="run --key $DATA_DIR/secret.key --allow-all"
-  else
-    EXEC_ARGS="run --key $DATA_DIR/secret.key --allowlist $DATA_DIR/authorized_keys"
-  fi
-
-  echo "==> 写入 systemd unit：$SERVICE_PATH"
-  UNIT_CONTENT="[Unit]
+  echo "==> 写 systemd unit"
+  local unit
+  unit="[Unit]
 Description=Zero remote shell server (iroh)
 Documentation=https://github.com/lipeilin2006/zero
 After=network-online.target
@@ -279,16 +253,16 @@ Wants=network-online.target
 Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
-WorkingDirectory=$DATA_DIR
-Environment=HOME=$DATA_DIR
-ExecStart=$PREFIX/zero-server $EXEC_ARGS
+WorkingDirectory=$CONFIG_DIR
+Environment=HOME=$CONFIG_DIR
+ExecStart=$PREFIX/zero-server run --config $CONFIG_FILE
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=$DATA_DIR
+ReadWritePaths=$CONFIG_DIR
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 LockPersonality=true
 MemoryDenyWriteExecute=true
@@ -298,54 +272,79 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 "
-
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "----- unit 内容 -----"
-    echo "$UNIT_CONTENT"
-    echo "---------------------"
+    echo "----- unit -----"
+    echo "$unit"
+    echo "----------------"
   else
-    printf '%s' "$UNIT_CONTENT" > "$SERVICE_PATH"
+    printf '%s' "$unit" > "$SERVICE_PATH"
   fi
 
   run systemctl daemon-reload
   run systemctl enable --now "$SERVICE_NAME"
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    echo "==> 完成（dry-run，没有真正执行）"
+    echo "==> 完成（dry-run）"
     return
   fi
 
   sleep 1
   echo "==> 服务状态"
   systemctl is-active "$SERVICE_NAME" || true
-  journalctl -u "$SERVICE_NAME" --no-pager -n 5 || true
+  journalctl -u "$SERVICE_NAME" --no-pager -n 4 || true
 
   echo
   echo "==> 部署完成"
-  echo "服务器 endpoint id："
-  as_user "$PREFIX/zero-server" id --key "$DATA_DIR/secret.key" | head -1
+  echo "服务端 id："
+  as_user "$PREFIX/zero-server" -c "$CONFIG_FILE" id
   echo
-  echo "客户端填这个 ticket（带地址，推荐）："
+  echo "客户端填这个 ticket："
   for _ in $(seq 1 120); do
-    [[ -s "$DATA_DIR/ticket" ]] && break
+    [[ -s "$CONFIG_DIR/ticket" ]] && break
     sleep 0.5
   done
-  if [[ -s "$DATA_DIR/ticket" ]]; then
-    cat "$DATA_DIR/ticket"
+  if [[ -s "$CONFIG_DIR/ticket" ]]; then
+    cat "$CONFIG_DIR/ticket"
   else
-    echo "（ticket 还没生成，稍后再看：cat $DATA_DIR/ticket）"
+    echo "（还没生成，稍后看：cat $CONFIG_DIR/ticket）"
   fi
   echo
-  echo "信任客户端（客户端 id 用 zero --show-id 取）："
-  echo "  sudo -u $RUN_USER $PREFIX/zero-server trust <client-id> \\"
-  echo "    --key $DATA_DIR/secret.key --allowlist $DATA_DIR/authorized_keys"
+  echo "常用命令（全局安装，不用带 -c）："
+  echo "  zero-server id                    # 服务端 id"
+  echo "  zero-server trust <client-id>     # 信任客户端"
+  echo "  zero-server trusted               # 查看白名单"
+  echo "  zero-server untrust <client-id>   # 取消信任"
+  echo "  zero-server ticket                # 打印 ticket"
+  echo "  journalctl -u $SERVICE_NAME -f    # 看日志"
   echo
-  echo "看日志：journalctl -u $SERVICE_NAME -f"
   echo "卸载：./install-server.sh --uninstall [--purge]"
 
   if [[ -n "${DOWNLOAD_DIR:-}" ]]; then
     rm -rf "$DOWNLOAD_DIR"
   fi
+}
+
+uninstall() {
+  need_root
+  need_systemd
+  resolve_user
+
+  echo "==> 停止并移除 $SERVICE_NAME"
+  run systemctl disable --now "$SERVICE_NAME" || true
+  run rm -f "$SERVICE_PATH"
+  run systemctl daemon-reload
+  run rm -f "$PREFIX/zero-server"
+
+  if [[ "$PURGE" -eq 1 ]]; then
+    echo "==> 删除配置目录 $CONFIG_DIR"
+    run rm -rf "$CONFIG_DIR"
+    if id "$RUN_USER" >/dev/null 2>&1; then
+      run userdel "$RUN_USER" || true
+    fi
+  else
+    echo "保留配置目录：$CONFIG_DIR（加 --purge 一起删）"
+  fi
+  echo "已卸载。"
 }
 
 if [[ "$UNINSTALL" -eq 1 ]]; then

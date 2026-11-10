@@ -6802,7 +6802,7 @@ dependencies = [
 
 [[package]]
 name = "zero"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -6818,7 +6818,7 @@ dependencies = [
 
 [[package]]
 name = "zero-client"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -6835,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "zero-proto"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "postcard",
  "serde",
@@ -6844,16 +6844,15 @@ dependencies = [
 
 [[package]]
 name = "zero-server"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "clap",
- "data-encoding",
- "dirs 6.0.0",
  "iroh",
  "iroh-tickets",
  "portable-pty",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -6862,7 +6861,7 @@ dependencies = [
 
 [[package]]
 name = "zero-store"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

@@ -1,79 +1,78 @@
 # 部署
 
-## 发布产物里的服务端包按架构分开：`zero-server-<tag>-x86_64-linux.tar.gz` / `...-aarch64-linux.tar.gz`，脚本会自动识别架构并下载对应的包。
-
 ## 一键安装（systemd）
 
 ```bash
-# 一行安装：自动从 GitHub Release 下载 x86_64 二进制
+# 自动下载当前架构的 release 二进制
 curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh \
-  | sudo bash -s -- --download
+  | sudo bash
 
 # 或者用本地二进制
 sudo ./install-server.sh --bin ./target/release/zero-server
 ```
 
-会做这些事：
+做了什么：
 
 1. 创建专用系统用户 `zero`（已存在则复用）
-2. 建数据目录 `/var/lib/zero-server`（0750，属于 zero）
-3. 安装二进制到 `/usr/local/bin/zero-server`
-4. 生成 `secret.key`（0600）和空的 `authorized_keys`（0600）
-5. 写 `/etc/systemd/system/zero-server.service` 并 `enable --now`
-6. 打印服务器 endpoint id 和后续操作提示
+2. 安装二进制到 `/usr/local/bin/zero-server`
+3. 配置目录 `/etc/zero/server`：`config.json`、`secret.key`、`authorized_keys`、`ticket`
+4. 写 `/etc/systemd/system/zero-server.service` 并 `enable --now`
+5. 打印服务端 id 和 ticket
 
-> 服务以 `zero` 身份运行，远端 shell 也就是 zero 的 shell，
-> 工作目录是 `/var/lib/zero-server`。需要换成别的用户时用 `--user <name>`。
+## 配置文件
 
-常用参数：
+默认 `/etc/zero/server/config.json`：
+
+```json
+{
+  "key": "/etc/zero/server/secret.key",
+  "allowlist": "/etc/zero/server/authorized_keys",
+  "ticket": "/etc/zero/server/ticket",
+  "shell": null,
+  "locale": null,
+  "allow_all": false
+}
+```
+
+- `shell` 不填时按优先级选：Linux/macOS `fish > zsh > bash > sh`；Windows `pwsh > powershell > cmd`
+- `locale` 不填时用服务端 UTF-8 locale，否则 `C.UTF-8`
+- 路径不填时取配置文件同目录下的默认文件
+- 别的配置文件：`zero-server -c /path/config.json run`
+
+## 管理命令
+
+全局安装后不用带 `-c`：
+
+```bash
+zero-server id
+zero-server trust <client-id>
+zero-server trusted
+zero-server untrust <client-id>
+zero-server ticket
+```
+
+客户端 id 用 `zero --show-id` 取；服务运行中改 allowlist 会自动生效。
+
+## 卸载
+
+```bash
+sudo ./install-server.sh --uninstall          # 保留 /etc/zero/server
+sudo ./install-server.sh --uninstall --purge  # 连配置目录和 zero 用户一起删
+```
+
+## 参数
 
 | 参数 | 说明 |
 |---|---|
-| `--bin <path>` | 指定本地二进制（默认找 `./zero-server` 或 `target/release/zero-server`） |
-| `--user <name>` | 运行用户，默认 `zero`（不存在会自动创建） |
-| `--data-dir <path>` | 数据目录，默认 `/var/lib/zero-server` |
+| `--bin <path>` | 指定本地二进制 |
+| `--config-dir <path>` | 配置目录，默认 `/etc/zero/server` |
+| `--user <name>` | 运行用户，默认 `zero` |
+| `--arch <arch>` | 覆盖架构检测（x86_64 / aarch64） |
+| `--version <tag>` | 下载指定版本，默认 latest |
 | `--allow-any` | 调试用，跳过白名单 |
-| `--uninstall` | 停止并删除服务和二进制（保留数据） |
-| `--purge` | 配合 `--uninstall`，连数据目录和脚本创建的用户一起删 |
-| `--download` | 没有本地二进制时从 Release 下载（支持 x86_64 Linux） |
-| `--version <tag>` | 配合 `--download` 指定版本，默认 latest |
-| `--dry-run` | 只打印要执行的命令和 unit 内容 |
-
-## 信任客户端
-
-```bash
-# 客户端上
-zero --show-id
-
-# 服务端上（运行中也生效，不用重启）
-sudo -u zero /usr/local/bin/zero-server trust <client-id> \
-  --key /var/lib/zero-server/secret.key \
-  --allowlist /var/lib/zero-server/authorized_keys
-
-# 查看 / 取消
-sudo -u zero /usr/local/bin/zero-server trusted --key /var/lib/zero-server/secret.key
-sudo -u zero /usr/local/bin/zero-server untrust <client-id> --key /var/lib/zero-server/secret.key
-```
-
-## 给客户端填什么
-
-推荐用带地址的 ticket，不依赖发现服务的传播：
-
-```bash
-cat /var/lib/zero-server/ticket
-```
-
-> 服务端启动时会把 ticket 写到数据目录；`zero-server ticket` 也是读这个文件。
-> 不要用 `ticket --bind` 对着正在运行的服务生成——那会顶掉它的 relay 连接。
-
-也可以填裸 endpoint id（`zero-server id`），客户端会自动重试等发现记录。
+| `--no-download` | 只用本地二进制 |
+| `--dry-run` | 只打印命令和 unit |
 
 ## 手动安装
 
-参考 `packaging/zero-server.service`（那是「专用用户 zero + /var/lib」的写法），
-也可以直接用一键脚本 `--user zero`、`--data-dir /var/lib/zero-server` 生成同样的配置。
-
-```bash
-systemctl daemon-reload
-systemctl enable --now zero-server
-```
+参考 `packaging/zero-server.service`（默认 zero 用户 + `/etc/zero/server` 的写法）。
