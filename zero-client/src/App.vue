@@ -1,7 +1,8 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import XTermPane from "./components/XTermPane.vue";
+// xterm 体积不小，等真正开终端时再加载
+const XTermPane = defineAsyncComponent(() => import("./components/XTermPane.vue"));
 import {
   activePane,
   activeTab,
