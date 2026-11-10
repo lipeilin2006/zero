@@ -14,8 +14,8 @@
 #   --download          没有本地二进制时从 GitHub Release 下载（默认就会尝试下载）
 #   --no-download       只用本地二进制，不联网
 #   --arch <arch>       覆盖架构检测（x86_64 / aarch64）
-#   --user <name>       运行用户（默认 zero）
-#   --data-dir <path>   数据目录（默认 ~/.local/share/zero-server）
+#   --user <name>       运行用户（默认 zero，没有会自动创建）
+#   --data-dir <path>   数据目录（默认 /var/lib/zero-server）
 #   --allow-any         调试用：允许任何客户端（默认走白名单）
 #   --download          没有本地二进制时，从 GitHub Release 下载（默认 latest）
 #   --version <tag>     配合 --download 指定版本（例如 v0.1.0）
@@ -49,8 +49,8 @@ zero-server 一键部署（systemd）
 
 选项：
   --bin <path>        指定本地 zero-server 二进制
-  --user <name>       运行用户（默认执行 sudo 的当前用户）
-  --data-dir <path>   数据目录（默认 ~/.local/share/zero-server）
+  --user <name>       运行用户（默认 zero，没有会自动创建）
+  --data-dir <path>   数据目录（默认 /var/lib/zero-server）
   --arch <arch>       覆盖架构检测（x86_64 / aarch64）
   --version <tag>     指定下载版本（默认 latest）
   --allow-any         调试用：允许任何客户端（默认走白名单）
@@ -98,24 +98,25 @@ need_root() {
 
 resolve_user() {
   if [[ -z "$RUN_USER" ]]; then
-    RUN_USER="${SUDO_USER:-$(id -un)}"
-  fi
-  if ! id "$RUN_USER" >/dev/null 2>&1; then
-    echo "用户不存在：$RUN_USER" >&2
-    exit 1
-  fi
-  RUN_GROUP="$(id -gn "$RUN_USER")"
-  RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6)"
-  if [[ -z "$RUN_HOME" || ! -d "$RUN_HOME" ]]; then
-    echo "用户 $RUN_USER 没有可用的 home 目录（$RUN_HOME）" >&2
-    exit 1
+    RUN_USER="zero"
   fi
   if [[ -z "$DATA_DIR" ]]; then
-    DATA_DIR="$RUN_HOME/.local/share/zero-server"
+    DATA_DIR="/var/lib/zero-server"
   fi
-  if [[ "$RUN_USER" == "root" ]]; then
-    echo "警告：将以 root 身份运行远端 shell。建议用普通用户执行 sudo 安装。" >&2
+  if ! id "$RUN_USER" >/dev/null 2>&1; then
+    NOLOGIN="/usr/sbin/nologin"
+    [[ -x "$NOLOGIN" ]] || NOLOGIN="/sbin/nologin"
+    run useradd --system --home-dir "$DATA_DIR" --shell "$NOLOGIN" "$RUN_USER"
   fi
+  if id "$RUN_USER" >/dev/null 2>&1; then
+    RUN_GROUP="$(id -gn "$RUN_USER")"
+    RUN_HOME="$(getent passwd "$RUN_USER" | cut -d: -f6 || true)"
+  else
+    # dry-run 时用户还没创建
+    RUN_GROUP="$RUN_USER"
+    RUN_HOME="$DATA_DIR"
+  fi
+  [[ -n "$RUN_HOME" ]] || RUN_HOME="$DATA_DIR"
 }
 
 as_user() {
@@ -147,6 +148,9 @@ uninstall() {
   if [[ "$PURGE" -eq 1 ]]; then
     echo "==> 删除数据目录 $DATA_DIR"
     run rm -rf "$DATA_DIR"
+    if id "$RUN_USER" >/dev/null 2>&1; then
+      run userdel "$RUN_USER" || true
+    fi
   else
     echo "保留数据目录：$DATA_DIR（加 --purge 可一起删）"
   fi
@@ -236,20 +240,6 @@ install_service() {
 
   resolve_user
   echo "==> 运行用户 $RUN_USER（$RUN_HOME）/ 数据目录 $DATA_DIR"
-  # 数据目录在 home 下时，把缺失的中间层也建给该用户，
-  # 否则客户端写 ~/.local/share/zero 会被 root 建的目录挡住。
-  if [[ "$DATA_DIR" == "$RUN_HOME/"* ]]; then
-    parent="$(dirname "$DATA_DIR")"
-    while [[ "$parent" != "$RUN_HOME" && "$parent" != "/" ]]; do
-      if [[ ! -d "$parent" ]]; then
-        run install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$parent"
-      elif [[ "$(stat -c %U "$parent" 2>/dev/null || true)" == "root" ]]; then
-        # 之前被 root 建过（比如首次安装时），交还给用户
-        run chown "$RUN_USER:$RUN_GROUP" "$parent"
-      fi
-      parent="$(dirname "$parent")"
-    done
-  fi
   run install -d -m 0750 -o "$RUN_USER" -g "$RUN_GROUP" "$DATA_DIR"
 
   echo "==> 安装二进制"
@@ -289,13 +279,14 @@ Wants=network-online.target
 Type=simple
 User=$RUN_USER
 Group=$RUN_GROUP
-WorkingDirectory=$RUN_HOME
-Environment=HOME=$RUN_HOME
+WorkingDirectory=$DATA_DIR
+Environment=HOME=$DATA_DIR
 ExecStart=$PREFIX/zero-server $EXEC_ARGS
 Restart=on-failure
 RestartSec=2
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
+ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=$DATA_DIR
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK

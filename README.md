@@ -23,6 +23,13 @@
 
 服务端和客户端**分开构建、分开发布**：服务端是单个静态二进制，客户端是各平台安装包。
 
+服务端启动远端 shell 的优先级：
+
+- Linux/macOS：`fish` > `zsh` > `bash` > `sh`
+- Windows：`pwsh` > `powershell` > `cmd`
+
+可以用 `zero-server run --shell <path>` 覆盖。
+
 ## 快速开始（本机）
 
 ```bash
@@ -43,7 +50,7 @@ npm run tauri dev
 
 ## 部署服务端（一键）
 
-脚本会以你执行 `sudo` 的当前用户身份运行服务，自动装二进制、生成密钥、写 systemd unit、启动服务。
+脚本会创建（或复用）专用的 `zero` 系统用户，以它身份运行服务，自动装二进制、生成密钥、写 systemd unit、启动服务。
 
 ```bash
 # 一行安装（自动下载 release 里的服务端二进制）
@@ -64,15 +71,15 @@ sudo ./install-server.sh --allow-any
 zero --show-id
 
 # 服务端信任它（服务运行中也会自动生效）
-/usr/local/bin/zero-server trust <client-id> \
-  --key ~/.local/share/zero-server/secret.key \
-  --allowlist ~/.local/share/zero-server/authorized_keys
+sudo -u zero /usr/local/bin/zero-server trust <client-id> \
+  --key /var/lib/zero-server/secret.key \
+  --allowlist /var/lib/zero-server/authorized_keys
 ```
 
 取带地址的 ticket（客户端填这个比裸 id 更稳，不依赖发现服务）：
 
 ```bash
-cat ~/.local/share/zero-server/ticket
+cat /var/lib/zero-server/ticket
 ```
 
 卸载：`sudo ./install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。

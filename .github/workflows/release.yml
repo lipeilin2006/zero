@@ -8,6 +8,22 @@ permissions:
   contents: write
 
 jobs:
+  cleanup:
+    name: 清理旧版本
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 删除除当前 tag 之外的 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          KEEP: ${{ github.ref_name }}
+        run: |
+          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
+            if [ -n "$tag" ] && [ "$tag" != "$KEEP" ]; then
+              echo "删除旧版本：$tag"
+              gh release delete "$tag" --yes --cleanup-tag || true
+            fi
+          done
+
   server:
     name: server (${{ matrix.arch }} linux)
     strategy:

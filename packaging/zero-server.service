@@ -1,6 +1,5 @@
-# 示例 unit：专用用户 zero + /var/lib/zero-server 的写法。
-# 一键脚本会按「执行 sudo 的当前用户 + ~/.local/share/zero-server」生成，
-# 需要专用用户时用：install-server.sh --user zero --data-dir /var/lib/zero-server
+# 示例 unit：默认的专用用户 zero + /var/lib/zero-server 写法。
+# 一键脚本生成的 unit 与这个一致（可改 --user / --data-dir）。
 [Unit]
 Description=Zero remote shell server (iroh)
 Documentation=https://github.com/lipeilin2006/zero
@@ -11,6 +10,8 @@ Wants=network-online.target
 Type=simple
 User=zero
 Group=zero
+WorkingDirectory=/var/lib/zero-server
+Environment=HOME=/var/lib/zero-server
 ExecStart=/usr/local/bin/zero-server run --key /var/lib/zero-server/secret.key --allowlist /var/lib/zero-server/authorized_keys
 Restart=on-failure
 RestartSec=2

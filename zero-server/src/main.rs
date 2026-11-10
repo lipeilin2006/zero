@@ -258,11 +258,41 @@ fn pick_locale(explicit: Option<&str>) -> String {
     "C.UTF-8".to_string()
 }
 
+/// 服务端启动 shell 的优先级。
+/// Linux/macOS：fish > zsh > bash > sh
+/// Windows：pwsh > powershell > cmd
+fn shell_candidates() -> &'static [&'static str] {
+    #[cfg(windows)]
+    {
+        &["pwsh.exe", "powershell.exe", "cmd.exe"]
+    }
+    #[cfg(not(windows))]
+    {
+        &["fish", "zsh", "bash", "sh"]
+    }
+}
+
+fn find_in_path(names: &[&str]) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for name in names {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
 fn default_shell() -> String {
+    if let Some(found) = find_in_path(shell_candidates()) {
+        return found.to_string_lossy().into_owned();
+    }
     if cfg!(windows) {
         std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".into())
     } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+        "/bin/sh".into()
     }
 }
 
@@ -682,4 +712,23 @@ async fn handle_incoming(
 
     conn.close(0u8.into(), b"done");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_priority_is_expected() {
+        let first = shell_candidates()[0];
+        #[cfg(windows)]
+        assert_eq!(first, "pwsh.exe");
+        #[cfg(not(windows))]
+        assert_eq!(first, "fish");
+    }
+
+    #[test]
+    fn find_in_path_returns_none_for_missing() {
+        assert!(find_in_path(&["definitely-not-a-command-xyz"]).is_none());
+    }
 }
