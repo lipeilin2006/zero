@@ -6979,20 +6979,27 @@ dependencies = [
  "crossterm",
  "dirs 6.0.0",
  "iroh",
+ "serde_json",
  "tokio",
  "zero-proto",
+ "zero-store",
 ]
 
 [[package]]
 name = "zero-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "base64 0.22.1",
  "dirs 6.0.0",
+ "iroh",
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tokio",
+ "zero-proto",
+ "zero-store",
 ]
 
 [[package]]
@@ -7019,6 +7026,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "zero-proto",
+]
+
+[[package]]
+name = "zero-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

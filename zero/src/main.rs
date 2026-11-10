@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
-use clap::Parser;
+use anyhow::{Context, Result, bail};
+use clap::{Parser, Subcommand};
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent,
     MouseEventKind,
@@ -14,9 +14,12 @@ use zero_proto::{ALPN, ClientMsg, ServerMsg};
 
 #[derive(Parser, Debug)]
 #[command(name = "zero", about = "console client for zero-server")]
-struct Args {
-    /// Server endpoint id
-    endpoint: Option<String>,
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// 兼容旧用法：zero <endpoint 或已保存的名称>
+    target: Option<String>,
 
     /// Path to the persistent client secret key
     #[arg(long)]
@@ -33,6 +36,44 @@ struct Args {
     /// Print this client's endpoint id and exit
     #[arg(long)]
     show_id: bool,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// 连接服务器（等价于 zero <目标>）
+    Connect {
+        /// endpoint id 或已保存的名称
+        target: String,
+        #[arg(long)]
+        key: Option<PathBuf>,
+        #[arg(long)]
+        cols: Option<u16>,
+        #[arg(long)]
+        rows: Option<u16>,
+    },
+
+    /// 保存一台服务器
+    Add {
+        name: String,
+        endpoint: String,
+        /// 标签，逗号分隔
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
+    },
+
+    /// 列出保存的服务器
+    List {
+        /// 输出 JSON
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// 删除保存的服务器（支持名称 / endpoint / 前缀）
+    #[command(visible_aliases = ["rm", "delete"])]
+    Remove { target: String },
+
+    /// 查看某台服务器的完整 endpoint
+    Show { target: String },
 }
 
 struct TerminalGuard;
@@ -235,7 +276,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(value: &str) -> Result<Vec<u8>> {
-    if value.len() % 2 != 0 {
+    if !value.len().is_multiple_of(2) {
         anyhow::bail!("odd hex length")
     }
     (0..value.len())
@@ -261,6 +302,11 @@ fn load_or_create_secret(path: &Path) -> Result<SecretKey> {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(path, hex_encode(&secret.to_bytes()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
     Ok(secret)
 }
 
@@ -395,23 +441,182 @@ fn spawn_event_reader(tx: mpsc::UnboundedSender<Event>) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Args::parse();
-    let secret = load_or_create_secret(&args.key.unwrap_or_else(key_path))?;
+    let cli = Cli::parse();
 
-    if args.show_id {
+    if cli.show_id {
+        let secret = load_or_create_secret(&cli.key.clone().unwrap_or_else(key_path))?;
         println!("{}", secret.public());
         return Ok(());
     }
 
-    let server_id: EndpointId = args
-        .endpoint
-        .as_deref()
-        .context("server endpoint id is required")?
+    match cli.command {
+        Some(Command::Add {
+            name,
+            endpoint,
+            tags,
+        }) => cmd_add(&name, &endpoint, tags),
+        Some(Command::List { json }) => cmd_list(json),
+        Some(Command::Remove { target }) => cmd_remove(&target),
+        Some(Command::Show { target }) => cmd_show(&target),
+        Some(Command::Connect {
+            target,
+            key,
+            cols,
+            rows,
+        }) => connect(&target, key, cols, rows).await,
+        None => match cli.target {
+            Some(target) => connect(&target, cli.key, cli.cols, cli.rows).await,
+            None => {
+                use clap::CommandFactory;
+                Cli::command().print_help()?;
+                println!();
+                Ok(())
+            }
+        },
+    }
+}
+
+/// 目标可以是保存的名称、endpoint id，或 endpoint 前 8+ 位。
+fn resolve_target(target: &str) -> Result<(String, Option<String>)> {
+    if let Some(server) = zero_store::find(target)? {
+        let _ = zero_store::touch(target);
+        return Ok((server.endpoint, Some(server.name)));
+    }
+    let id: EndpointId = target.trim().parse().with_context(|| {
+        format!("找不到「{target}」：既不是保存的名称，也不是合法的 endpoint id")
+    })?;
+    Ok((id.to_string(), None))
+}
+
+fn cmd_add(name: &str, endpoint: &str, tags: Vec<String>) -> Result<()> {
+    let id: EndpointId = endpoint.trim().parse().context("endpoint id 格式不对")?;
+    let server = zero_store::add(name, &id.to_string(), tags)?;
+    println!("已保存：{}", server.name);
+    println!("endpoint：{}", server.endpoint);
+    if !server.tags.is_empty() {
+        println!("标签：{}", server.tags.join(", "));
+    }
+    println!("列表文件：{}", zero_store::store_path().display());
+    Ok(())
+}
+
+fn human_age(timestamp: u64) -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let seconds = now.saturating_sub(timestamp);
+    match seconds {
+        0..=59 => "刚刚".to_string(),
+        60..=3599 => format!("{} 分钟前", seconds / 60),
+        3600..=86_399 => format!("{} 小时前", seconds / 3600),
+        _ => format!("{} 天前", seconds / 86_400),
+    }
+}
+
+fn short_endpoint(endpoint: &str) -> String {
+    if endpoint.len() > 12 {
+        format!("{}…", &endpoint[..12])
+    } else {
+        endpoint.to_string()
+    }
+}
+
+fn cmd_list(json: bool) -> Result<()> {
+    let mut servers = zero_store::load()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&servers)?);
+        return Ok(());
+    }
+    if servers.is_empty() {
+        println!("还没有保存的服务器。");
+        println!("用 zero add <名称> <endpoint> 添加，或 zero <endpoint> 直接连。");
+        return Ok(());
+    }
+    servers.sort_by(|a, b| {
+        (b.last_opened.unwrap_or(0))
+            .cmp(&a.last_opened.unwrap_or(0))
+            .then(a.name.cmp(&b.name))
+    });
+    println!(
+        "{:<16} {:<16} {:<20} {}",
+        "名称", "endpoint", "标签", "最近打开"
+    );
+    for server in &servers {
+        let tags = if server.tags.is_empty() {
+            "-".to_string()
+        } else {
+            server.tags.join(",")
+        };
+        let opened = server
+            .last_opened
+            .map(human_age)
+            .unwrap_or_else(|| "-".to_string());
+        println!(
+            "{:<16} {:<16} {:<20} {}",
+            server.name,
+            short_endpoint(&server.endpoint),
+            tags,
+            opened
+        );
+    }
+    println!();
+    println!("共 {} 个；连接：zero <名称>", servers.len());
+    Ok(())
+}
+
+fn cmd_remove(target: &str) -> Result<()> {
+    let removed = zero_store::remove(target)?;
+    println!(
+        "已删除：{}（{}）",
+        removed.name,
+        short_endpoint(&removed.endpoint)
+    );
+    Ok(())
+}
+
+fn cmd_show(target: &str) -> Result<()> {
+    let Some(server) = zero_store::find(target)? else {
+        bail!("找不到「{target}」，用 zero list 看看有哪些");
+    };
+    println!("名称：{}", server.name);
+    println!("endpoint：{}", server.endpoint);
+    println!(
+        "标签：{}",
+        if server.tags.is_empty() {
+            "-".to_string()
+        } else {
+            server.tags.join(", ")
+        }
+    );
+    println!(
+        "最近打开：{}",
+        server
+            .last_opened
+            .map(human_age)
+            .unwrap_or_else(|| "从未".to_string())
+    );
+    Ok(())
+}
+
+async fn connect(
+    target: &str,
+    key: Option<PathBuf>,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> Result<()> {
+    let (endpoint_value, name) = resolve_target(target)?;
+    let secret = load_or_create_secret(&key.unwrap_or_else(key_path))?;
+    let server_id: EndpointId = endpoint_value
         .trim()
         .parse()
         .context("invalid server endpoint id")?;
 
-    eprintln!("connecting to {server_id}...");
+    if let Some(name) = name {
+        eprintln!("connecting to {name} ({server_id})...");
+    } else {
+        eprintln!("connecting to {server_id}...");
+    }
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret)
         .bind()
@@ -421,8 +626,8 @@ async fn main() -> Result<()> {
     let (mut send, mut recv) = connection.open_bi().await?;
     let (terminal_cols, terminal_rows) =
         terminal::size().context("zero must run inside a terminal")?;
-    let cols = args.cols.unwrap_or(terminal_cols).max(1);
-    let rows = args.rows.unwrap_or(terminal_rows).max(1);
+    let cols = cols.unwrap_or(terminal_cols).max(1);
+    let rows = rows.unwrap_or(terminal_rows).max(1);
     zero_proto::write_msg(&mut send, &ClientMsg::Shell { cols, rows }).await?;
 
     match zero_proto::read_msg::<_, ServerMsg>(&mut recv).await? {
@@ -477,7 +682,15 @@ async fn main() -> Result<()> {
                 }
             }
             message = zero_proto::read_msg::<_, ServerMsg>(&mut recv) => {
-                match message? {
+                let message = match message {
+                    Ok(message) => message,
+                    Err(error) => {
+                        // 服务器收尾时会把连接关掉，这不是致命错误。
+                        eprintln!("连接已断开：{error}");
+                        break;
+                    }
+                };
+                match message {
                     Some(ServerMsg::Output { data }) => {
                         modes.feed(&data);
                         let (visible, replies) = output.feed(&data);

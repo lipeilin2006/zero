@@ -35,7 +35,7 @@ where
     T: Serialize,
 {
     use tokio::io::AsyncWriteExt;
-    let payload = postcard::to_stdvec(msg).map_err(|e| std::io::Error::other(e))?;
+    let payload = postcard::to_stdvec(msg).map_err(std::io::Error::other)?;
     let len = (payload.len() as u32).to_le_bytes();
     sink.write_all(&len).await?;
     sink.write_all(&payload).await?;
@@ -56,10 +56,13 @@ where
     }
     let len = u32::from_le_bytes(len_buf) as usize;
     if len > 16 * 1024 * 1024 {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "message too large"));
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "message too large",
+        ));
     }
     let mut payload = vec![0u8; len];
     src.read_exact(&mut payload).await?;
-    let msg = postcard::from_bytes(&payload).map_err(|e| std::io::Error::other(e))?;
+    let msg = postcard::from_bytes(&payload).map_err(std::io::Error::other)?;
     Ok(Some(msg))
 }

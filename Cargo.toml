@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["zero-proto", "zero-server", "zero", "zero-client/src-tauri"]
+members = ["zero-proto", "zero-store", "zero-server", "zero", "zero-client/src-tauri"]
 
 [workspace.dependencies]
 iroh = "1.4"
@@ -16,3 +16,11 @@ portable-pty = "0.9"
 crossterm = "0.29"
 data-encoding = "2"
 serde_json = "1"
+
+# 发布优化（workspace 根统一配置，否则子 crate 里的 profile 会被忽略）
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
