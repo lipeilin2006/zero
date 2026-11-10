@@ -242,28 +242,6 @@ async function openServerTab(server) {
   }
 }
 
-const plusOptions = computed(() => {
-  const items = servers.value.map((server, index) => ({
-    label: `${server.name}`,
-    key: `srv:${index}`,
-  }));
-  if (items.length) items.push({ type: "divider", key: "divider" });
-  items.push({ label: "管理服务器…", key: "manage" });
-  return items;
-});
-
-function onPlusSelect(key) {
-  if (key === "manage") {
-    splitMode.value = null;
-    pickerOpen.value = true;
-    return;
-  }
-  const index = Number(String(key).split(":")[1]);
-  if (Number.isInteger(index) && servers.value[index]) {
-    openServerTab(servers.value[index]);
-  }
-}
-
 function requestSplit(direction) {
   if (!activeTab.value) {
     pickerOpen.value = true;
@@ -334,10 +312,13 @@ function onKeydown(event) {
     event.preventDefault();
     cycleTab(event.shiftKey ? -1 : 1);
   } else if (/^[1-9]$/.test(key)) {
-    const index = Number(key) - 1;
-    if (tabs[index]) {
+    const index = Number(key);
+    if (index === 1) {
       event.preventDefault();
-      activeTab.value = tabs[index];
+      activeTab.value = null;
+    } else if (tabs[index - 2]) {
+      event.preventDefault();
+      activeTab.value = tabs[index - 2];
     }
   }
 }
@@ -394,105 +375,75 @@ onUnmounted(() => {
         </div>
       </header>
 
+      <div class="tabbar">
+        <div class="tab-scroll">
+          <button
+            class="term-tab servers-tab"
+            :class="{ active: !activeTab }"
+            @click="activeTab = null"
+          >
+            <span class="tab-icon">▤</span>
+            <span class="tab-title">服务器</span>
+          </button>
+          <button
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="term-tab"
+            :class="{ active: activeTab?.id === tab.id }"
+            @click="activeTab = tab"
+          >
+            <span class="tab-dot"></span>
+            <span class="tab-title">{{ tab.title }}</span>
+            <span v-if="tab.panes.length > 1" class="tab-count">{{ tab.panes.length }}</span>
+            <span class="tab-close" @click.stop="closeTab(tab)">×</span>
+          </button>
+        </div>
+        <button
+          class="tab-add"
+          title="新建标签页（Ctrl+Shift+T）"
+          @click="splitMode = null; pickerOpen = true"
+        >
+          ＋
+        </button>
+      </div>
+
       <div class="body">
-        <aside class="sidebar">
-          <div class="sidebar-head">
-            <div class="sidebar-title">
-              <span>服务器</span>
-              <small>{{ servers.length }} 个已保存</small>
-            </div>
-            <n-button size="tiny" secondary @click="openCreate">添加</n-button>
-          </div>
-          <n-input v-model:value="search" clearable placeholder="搜索名称 / 标签" size="small" />
-          <div class="server-list">
-            <button
-              v-for="item in filteredServers"
-              :key="item.index"
-              class="server-item"
-              :class="{ active: item.index === selectedIndex, running: tabs.some((t) => t.endpoint === item.server.endpoint) }"
-              @click="selectServer(item.index)"
-              @dblclick="openServerTab(item.server)"
-            >
-              <span class="dot"></span>
-              <span class="server-text">
-                <span class="name">{{ item.server.name }}</span>
-                <span v-if="item.server.tags?.length" class="tags-inline">
-                  {{ item.server.tags.join(" · ") }}
-                </span>
-              </span>
-            </button>
-            <div v-if="!filteredServers.length" class="empty">还没有服务器</div>
-          </div>
-          <div class="sidebar-foot">
-            <span>双击服务器直接开终端</span>
-          </div>
-        </aside>
-
-        <main class="content">
-          <!-- 终端工作区 -->
-          <div v-if="tabs.length" class="tabbar">
-              <div class="tab-scroll">
-                <button
-                  v-for="tab in tabs"
-                  :key="tab.id"
-                  class="term-tab"
-                  :class="{ active: activeTab?.id === tab.id }"
-                  @click="activeTab = tab"
-                >
-                  <span class="tab-dot"></span>
-                  <span class="tab-title">{{ tab.title }}</span>
-                  <span v-if="tab.panes.length > 1" class="tab-count">{{ tab.panes.length }}</span>
-                  <span class="tab-close" @click.stop="closeTab(tab)">×</span>
-                </button>
+        <!-- 服务器标签页：不可关闭 -->
+        <div v-show="!activeTab" class="servers-view">
+          <aside class="sidebar">
+            <div class="sidebar-head">
+              <div class="sidebar-title">
+                <span>服务器</span>
+                <small>{{ servers.length }} 个已保存</small>
               </div>
-              <n-dropdown trigger="click" :options="plusOptions" @select="onPlusSelect">
-                <button class="tab-add" title="新建标签页（Ctrl+Shift+T）">＋</button>
-              </n-dropdown>
-          </div>
-
-          <div v-show="activeTab" class="term-view">
-            <div class="term-toolbar">
-              <button class="ghost" @click="ctrl('\u0003')">Ctrl-C</button>
-              <button class="ghost" @click="ctrl('\u001b')">Esc</button>
-              <button class="ghost" @click="ctrl('\t')">Tab</button>
-              <button class="ghost" @click="ctrl('\u001b[A')">↑</button>
-              <button class="ghost" @click="ctrl('\u001b[B')">↓</button>
-              <span class="divider-v"></span>
-              <button class="ghost" @click="requestSplit('row')">⇋ 左右拆分</button>
-              <button class="ghost" @click="requestSplit('col')">⇵ 上下拆分</button>
-              <span class="spacer"></span>
-              <span class="term-hint">Ctrl+Shift+T 新标签 · Ctrl+Shift+W 关窗格 · Ctrl+Shift+E/O 拆分</span>
-              <button class="ghost danger" @click="closeActivePane">关闭窗格</button>
+              <n-button size="tiny" secondary @click="openCreate">添加</n-button>
             </div>
-
-            <div class="term-body-outer">
-              <div
-                v-for="tab in tabs"
-                v-show="activeTab?.id === tab.id"
-                :key="tab.id"
-                class="term-body"
-                :class="`dir-${tab.direction}`"
+            <n-input v-model:value="search" clearable placeholder="搜索名称 / 标签" size="small" />
+            <div class="server-list">
+              <button
+                v-for="item in filteredServers"
+                :key="item.index"
+                class="server-item"
+                :class="{ active: item.index === selectedIndex, running: tabs.some((t) => t.endpoint === item.server.endpoint) }"
+                @click="selectServer(item.index)"
+                @dblclick="openServerTab(item.server)"
               >
-                <div
-                  v-for="pane in tab.panes"
-                  :key="pane.termName"
-                  class="term-pane"
-                  :class="{ focused: tab.panes.length > 1 && tab.activePaneId === pane.id }"
-                  :data-pane="pane.termName"
-                  @click="setActivePane(tab, pane)"
-                >
-                  <div v-if="tab.panes.length > 1" class="pane-badge">{{ pane.serverName }}</div>
-                  <XTermPane
-                    :pane="pane"
-                    :active="activeTab?.id === tab.id && tab.activePaneId === pane.id"
-                  />
-                </div>
-              </div>
+                <span class="dot"></span>
+                <span class="server-text">
+                  <span class="name">{{ item.server.name }}</span>
+                  <span v-if="item.server.tags?.length" class="tags-inline">
+                    {{ item.server.tags.join(" · ") }}
+                  </span>
+                </span>
+              </button>
+              <div v-if="!filteredServers.length" class="empty">还没有服务器</div>
             </div>
-          </div>
+            <div class="sidebar-foot">
+              <span>双击服务器直接开终端</span>
+            </div>
+          </aside>
 
-          <!-- 服务器详情 -->
-          <template v-if="!activeTab">
+          <main class="server-main">
             <div v-if="selected" class="content-scroll">
               <div class="detail-header">
                 <div>
@@ -528,18 +479,59 @@ onUnmounted(() => {
               </div>
             </div>
             <div v-else class="welcome">
-            <div class="welcome-card">
-              <div class="welcome-icon">⌘</div>
-              <h3>还没有打开终端</h3>
-              <p>从左侧选择服务器，双击或点「打开终端」开始；也可以直接点「新建标签页」。</p>
-              <n-button type="primary" @click="pickerOpen = true">新建标签页</n-button>
+              <div class="welcome-card">
+                <div class="welcome-icon">⌘</div>
+                <h3>还没有打开终端</h3>
+                <p>从左侧选择服务器，双击或点「打开终端」开始；也可以点标签栏的 ＋ 新建。</p>
+              </div>
             </div>
-            </div>
-          </template>
+          </main>
+        </div>
 
-          <footer v-if="status" class="statusbar">{{ status }}</footer>
-        </main>
+        <!-- 终端标签页 -->
+        <div v-show="activeTab" class="term-view">
+          <div class="term-toolbar">
+            <button class="ghost" @click="ctrl('\u0003')">Ctrl-C</button>
+            <button class="ghost" @click="ctrl('\u001b')">Esc</button>
+            <button class="ghost" @click="ctrl('\t')">Tab</button>
+            <button class="ghost" @click="ctrl('\u001b[A')">↑</button>
+            <button class="ghost" @click="ctrl('\u001b[B')">↓</button>
+            <span class="divider-v"></span>
+            <button class="ghost" @click="requestSplit('row')">⇋ 左右拆分</button>
+            <button class="ghost" @click="requestSplit('col')">⇵ 上下拆分</button>
+            <span class="spacer"></span>
+            <span class="term-hint">Ctrl+Shift+T 新标签 · Ctrl+Shift+W 关窗格 · Ctrl+Shift+E/O 拆分</span>
+            <button class="ghost danger" @click="closeActivePane">关闭窗格</button>
+          </div>
+
+          <div class="term-body-outer">
+            <div
+              v-for="tab in tabs"
+              v-show="activeTab?.id === tab.id"
+              :key="tab.id"
+              class="term-body"
+              :class="`dir-${tab.direction}`"
+            >
+              <div
+                v-for="pane in tab.panes"
+                :key="pane.termName"
+                class="term-pane"
+                :class="{ focused: tab.panes.length > 1 && tab.activePaneId === pane.id }"
+                :data-pane="pane.termName"
+                @click="setActivePane(tab, pane)"
+              >
+                <div v-if="tab.panes.length > 1" class="pane-badge">{{ pane.serverName }}</div>
+                <XTermPane
+                  :pane="pane"
+                  :active="activeTab?.id === tab.id && tab.activePaneId === pane.id"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <footer v-if="status" class="statusbar">{{ status }}</footer>
     </div>
 
     <n-modal v-model:show="modalOpen" preset="card" title="服务器信息" style="width: 440px">
@@ -813,11 +805,18 @@ body {
 }
 
 /* content */
-.content {
+.servers-view {
   flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
+.server-main {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
   background: var(--bg);
 }
 
@@ -983,6 +982,15 @@ body {
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 5px rgba(110, 231, 168, .7);
+}
+
+.tab-icon {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.servers-tab.active .tab-icon {
+  color: var(--accent);
 }
 
 .tab-title {

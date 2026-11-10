@@ -5,14 +5,15 @@ Zero 的图形客户端：管理保存的服务器，并内置多标签 / 多窗
 ## 功能
 
 - 服务器列表：添加 / 编辑 / 删除 / 搜索，标签，记住最近打开
-- 多标签：每个标签一条到 `zero-server` 的连接
+- 标签栏第一个永远是「服务器」标签（不可关闭），后面是终端标签，＋ 一直在右侧
+- 多标签：每个终端标签一条到 `zero-server` 的连接
 - 多窗格：一个标签内可以左右或上下拆分，每个窗格一条独立会话
 - 终端用 xterm.js：完整 ANSI 终端仿真，vim / top / htop 都能用
 - 快捷键（和 Windows Terminal 对齐）：
   - `Ctrl+Shift+T` 新建标签
   - `Ctrl+Shift+W` 关闭窗格
   - `Ctrl+Tab` / `Ctrl+Shift+Tab` 切换标签
-  - `Ctrl+1..9` 跳到第 N 个标签
+  - `Ctrl+1` 服务器标签，`Ctrl+2..9` 第 N-1 个终端标签
   - `Ctrl+Shift+E` 左右拆分，`Ctrl+Shift+O` 上下拆分
   - 其余按键（Ctrl+C、Ctrl+D、Ctrl+Z…）直接交给远端 shell
 - 终端工具栏：Ctrl-C、Esc、Tab、上下键、拆分、关闭窗格
