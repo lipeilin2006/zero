@@ -7,10 +7,13 @@
 #   - 写 systemd unit 并启动
 #
 # 用法：
-#   sudo packaging/install-server.sh [选项]
+#   sudo ./install-server.sh [选项]
 #
 # 选项：
 #   --bin <path>        指定 zero-server 二进制（默认找 ./zero-server 或 target/release）
+#   --download          没有本地二进制时从 GitHub Release 下载（默认就会尝试下载）
+#   --no-download       只用本地二进制，不联网
+#   --arch <arch>       覆盖架构检测（x86_64 / aarch64）
 #   --user <name>       运行用户（默认 zero）
 #   --data-dir <path>   数据目录（默认 /var/lib/zero-server）
 #   --allow-any         调试用：允许任何客户端（默认走白名单）
@@ -30,14 +33,34 @@ DATA_DIR="/var/lib/zero-server"
 RUN_USER="zero"
 BIN_SRC=""
 ALLOW_ANY=0
-DOWNLOAD=0
+DOWNLOAD=1
 VERSION="latest"
+ARCH_OVERRIDE=""
 UNINSTALL=0
 PURGE=0
 DRY_RUN=0
 
 usage() {
-  sed -n '3,24p' "$0" | sed 's/^# \{0,1\}//'
+  cat <<'USAGE'
+zero-server 一键部署（systemd）
+
+用法：
+  sudo ./install-server.sh [选项]
+
+选项：
+  --bin <path>        指定本地 zero-server 二进制
+  --user <name>       运行用户（默认 zero）
+  --data-dir <path>   数据目录（默认 /var/lib/zero-server）
+  --arch <arch>       覆盖架构检测（x86_64 / aarch64）
+  --version <tag>     指定下载版本（默认 latest）
+  --allow-any         调试用：允许任何客户端（默认走白名单）
+  --download          从 GitHub Release 下载（默认行为，这个参数可省略）
+  --no-download       只用本地二进制，不联网
+  --uninstall         停止并移除服务
+  --purge             卸载时连数据目录一起删
+  --dry-run           只打印将要执行的命令
+  -h, --help          帮助
+USAGE
 }
 
 while [[ $# -gt 0 ]]; do
@@ -47,6 +70,8 @@ while [[ $# -gt 0 ]]; do
     --data-dir) DATA_DIR="${2:?--data-dir 需要参数}"; shift 2 ;;
     --allow-any) ALLOW_ANY=1; shift ;;
     --download) DOWNLOAD=1; shift ;;
+    --no-download) DOWNLOAD=0; shift ;;
+    --arch) ARCH_OVERRIDE="${2:?--arch 需要参数}"; shift 2 ;;
     --version) VERSION="${2:?--version 需要参数}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
@@ -110,11 +135,29 @@ locate_binary() {
   done
 }
 
+detect_arch() {
+  if [[ -n "$ARCH_OVERRIDE" ]]; then
+    echo "$ARCH_OVERRIDE"
+    return
+  fi
+  local machine
+  machine="$(uname -m)"
+  case "$machine" in
+    x86_64|amd64) echo "x86_64" ;;
+    aarch64|arm64) echo "aarch64" ;;
+    *) echo "unsupported:$machine" ;;
+  esac
+}
+
 download_binary() {
   local arch
-  arch="$(uname -m)"
-  if [[ "$arch" != "x86_64" ]]; then
-    echo "没有现成的 $arch 发布包，请从源码构建：cargo build --release -p zero-server" >&2
+  arch="$(detect_arch)"
+  if [[ "$arch" == unsupported:* ]]; then
+    echo "不支持的架构：${arch#unsupported:}。请从源码构建：cargo build --release -p zero-server" >&2
+    exit 1
+  fi
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "一键部署只支持 Linux（当前 $(uname -s)），其它平台请从源码构建。" >&2
     exit 1
   fi
   command -v curl >/dev/null 2>&1 || {
@@ -126,7 +169,7 @@ download_binary() {
     tag="$(curl -fsSL https://api.github.com/repos/lipeilin2006/zero/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
   fi
   [[ -n "$tag" ]] || { echo "拿不到最新版本号" >&2; exit 1; }
-  local url="https://github.com/lipeilin2006/zero/releases/download/${tag}/zero-server-${tag}-x86_64-linux.tar.gz"
+  local url="https://github.com/lipeilin2006/zero/releases/download/${tag}/zero-server-${tag}-${arch}-linux.tar.gz"
   echo "==> 下载 $url"
   local tmp
   tmp="$(mktemp -d)"
@@ -143,7 +186,7 @@ install_service() {
 
   if [[ -z "$BIN_SRC" && "$DOWNLOAD" -eq 1 ]]; then
     if [[ "$DRY_RUN" -eq 1 ]]; then
-      echo "+ download zero-server ${VERSION} (x86_64-linux)"
+      echo "+ download zero-server ${VERSION} ($(detect_arch)-linux)"
       BIN_SRC="(downloaded zero-server)"
     else
       download_binary
@@ -153,7 +196,7 @@ install_service() {
   if [[ -z "$BIN_SRC" ]]; then
     echo "找不到 zero-server 二进制。" >&2
     echo "先构建：cargo build --release -p zero-server" >&2
-    echo "或用 --bin 指定路径，或加 --download 从 GitHub Release 下载。" >&2
+    echo "或用 --bin 指定路径；默认会尝试从 GitHub Release 下载，离线时加 --no-download。" >&2
     exit 1
   fi
   if [[ ! -f "$BIN_SRC" && "$DRY_RUN" -eq 0 ]]; then
@@ -268,7 +311,7 @@ WantedBy=multi-user.target
   echo "    --key $DATA_DIR/secret.key --allowlist $DATA_DIR/authorized_keys"
   echo
   echo "看日志：journalctl -u $SERVICE_NAME -f"
-  echo "卸载：$0 --uninstall [--purge]"
+  echo "卸载：./install-server.sh --uninstall [--purge]"
 
   if [[ -n "${DOWNLOAD_DIR:-}" ]]; then
     rm -rf "$DOWNLOAD_DIR"

@@ -47,14 +47,14 @@ npm run tauri dev
 
 ```bash
 # 一行安装（自动下载 release 里的服务端二进制）
-curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/packaging/install-server.sh \
+curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh \
   | sudo bash -s -- --download
 
 # 或者在仓库根目录，用本地构建好的二进制
-sudo packaging/install-server.sh --bin ./target/release/zero-server
+sudo ./install-server.sh --bin ./target/release/zero-server
 
 # 调试：跳过白名单
-sudo packaging/install-server.sh --allow-any
+sudo ./install-server.sh --allow-any
 ```
 
 安装完成后脚本会打印服务器 endpoint id。把客户端的 id 加进白名单：
@@ -75,7 +75,7 @@ sudo -u zero /usr/local/bin/zero-server trust <client-id> \
 cat /var/lib/zero-server/ticket
 ```
 
-卸载：`sudo packaging/install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。
+卸载：`sudo ./install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。
 
 ## 客户端
 
@@ -95,7 +95,8 @@ zero rm dev                    # 删除
 
 打 tag 会触发 GitHub Actions：
 
-- `v0.1.0` 这类 tag → 构建服务端二进制包 + 各平台客户端安装包，自动创建 GitHub Release
+- `v0.1.x` 这类 tag → 构建服务端二进制包（x86_64 / aarch64）和各平台客户端安装包，自动创建 GitHub Release
+- 服务端包名：`zero-server-<tag>-<arch>-linux.tar.gz`；客户端按平台/架构分别出包
 - 普通 push / PR → CI（fmt、clippy、测试、前端构建）
 
 ```bash

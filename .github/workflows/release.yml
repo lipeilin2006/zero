@@ -9,41 +9,57 @@ permissions:
 
 jobs:
   server:
-    name: server (linux x86_64)
+    name: server (${{ matrix.arch }} linux)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            arch: x86_64
+          - target: aarch64-unknown-linux-gnu
+            arch: aarch64
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release -p zero-server -p zero
+      - uses: taiki-e/install-action@cross
+      - name: 交叉编译
+        run: cross build --release --target ${{ matrix.target }} -p zero-server -p zero
       - name: 打包
         run: |
           mkdir -p dist
-          cp target/release/zero-server target/release/zero dist/
-          cp packaging/install-server.sh packaging/README.md dist/
-          tar -czf "zero-server-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" -C dist zero-server zero install-server.sh README.md
-          cp packaging/install-server.sh .
-      - uses: softprops/action-gh-release@v2
+          cp "target/${{ matrix.target }}/release/zero-server" dist/
+          cp "target/${{ matrix.target }}/release/zero" dist/
+          cp install-server.sh packaging/README.md dist/
+          tar -czf "zero-server-${GITHUB_REF_NAME}-${{ matrix.arch }}-linux.tar.gz" \
+            -C dist zero-server zero install-server.sh README.md
+      - name: 上传 release 附件
+        uses: softprops/action-gh-release@v2
         with:
-          files: |
-            zero-server-*.tar.gz
-            install-server.sh
+          files: zero-server-*.tar.gz
           generate_release_notes: true
-          body: |
-            服务端二进制（Linux x86_64）和客户端安装包见附件。
 
-            服务端一键部署：
-            ```bash
-            tar -xzf zero-server-*.tar.gz
-            sudo packaging/install-server.sh --bin ./zero-server
-            ```
-            或直接下载 `install-server.sh` 后配合二进制使用。
+  install-script:
+    name: 一键部署脚本
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: 上传 install-server.sh
+        uses: softprops/action-gh-release@v2
+        with:
+          files: install-server.sh
 
   client:
     name: client (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-22.04, windows-latest, macos-latest]
+        platform:
+          - ubuntu-22.04
+          - ubuntu-24.04-arm
+          - windows-latest
+          - macos-15-intel
+          - macos-latest
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -54,7 +70,7 @@ jobs:
           cache-dependency-path: zero-client/package-lock.json
       - uses: dtolnay/rust-toolchain@stable
       - name: Linux 依赖
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -68,7 +84,15 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Zero ${{ github.ref_name }}"
           releaseBody: |
-            服务端二进制和客户端安装包见附件。
-            服务端部署见仓库 packaging/README.md。
+            服务端和客户端按平台/架构分开发布：
+
+            - 服务端：`zero-server-<版本>-<架构>-linux.tar.gz`（x86_64 / aarch64）
+            - 客户端：下面的 deb / rpm / AppImage / dmg / exe / msi
+
+            一键部署（自动识别架构、自动下载服务端）：
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh | sudo bash
+            ```
+            详细说明见仓库 README / packaging/README.md。
           releaseDraft: false
           prerelease: false

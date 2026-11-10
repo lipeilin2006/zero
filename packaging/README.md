@@ -1,14 +1,16 @@
 # 部署
 
+## 发布产物里的服务端包按架构分开：`zero-server-<tag>-x86_64-linux.tar.gz` / `...-aarch64-linux.tar.gz`，脚本会自动识别架构并下载对应的包。
+
 ## 一键安装（systemd）
 
 ```bash
 # 一行安装：自动从 GitHub Release 下载 x86_64 二进制
-curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/packaging/install-server.sh \
+curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh \
   | sudo bash -s -- --download
 
 # 或者用本地二进制
-sudo packaging/install-server.sh --bin ./target/release/zero-server
+sudo ./install-server.sh --bin ./target/release/zero-server
 ```
 
 会做这些事：
