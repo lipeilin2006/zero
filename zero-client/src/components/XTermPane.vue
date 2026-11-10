@@ -20,6 +20,8 @@ let layoutTimer = null;
 let disposers = [];
 let unregister = null;
 let started = false;
+let fitFrame = null;
+let lastSize = { width: 0, height: 0 };
 
 function tryFit() {
   if (!fit || !host.value) return;
@@ -139,8 +141,17 @@ function initTerminal() {
     dispose: () => term?.dispose(),
   });
 
+  // 合并同帧内的多次尺寸变化，避免 fit ↔ 容器尺寸互相触发形成抖动。
   observer = new ResizeObserver(() => {
-    if (props.active) tryFit();
+    if (!props.active) return;
+    if (fitFrame) return;
+    fitFrame = requestAnimationFrame(() => {
+      fitFrame = null;
+      const { clientWidth, clientHeight } = host.value || { clientWidth: 0, clientHeight: 0 };
+      if (clientWidth === lastSize.width && clientHeight === lastSize.height) return;
+      lastSize = { width: clientWidth, height: clientHeight };
+      tryFit();
+    });
   });
   observer.observe(host.value);
 
@@ -180,6 +191,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  if (fitFrame) cancelAnimationFrame(fitFrame);
   if (layoutTimer) clearTimeout(layoutTimer);
   layoutObserver?.disconnect();
   observer?.disconnect();

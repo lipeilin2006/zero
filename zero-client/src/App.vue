@@ -613,12 +613,14 @@ body {
   font-family: Inter, "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
   color: var(--text);
   background: var(--bg);
+  overflow: hidden;
 }
 
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 /* topbar */
@@ -937,6 +939,8 @@ body {
 }
 
 .tab-scroll {
+  flex: 0 1 auto;
+  min-width: 0;
   display: flex;
   gap: 4px;
   overflow-x: auto;
@@ -1070,15 +1074,19 @@ body {
 
 .term-view {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .term-body-outer {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   display: flex;
+  overflow: hidden;
 }
 
 .term-body {
