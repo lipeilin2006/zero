@@ -14,10 +14,12 @@ const props = defineProps({
 const host = ref(null);
 let term = null;
 let fit = null;
-let unicode = null;
 let observer = null;
+let layoutObserver = null;
+let layoutTimer = null;
 let disposers = [];
 let unregister = null;
+let started = false;
 
 function tryFit() {
   if (!fit || !host.value) return;
@@ -30,9 +32,40 @@ function tryFit() {
   }
 }
 
-onMounted(() => {
-  uiLog(`XTermPane mount ${props.pane.termName}`);
-  try {
+/// 第一个标签页挂载时，终端区域可能刚从 display:none 变为可见，
+/// 尺寸还是 0。等它真正有布局了再创建 xterm，否则渲染器会按 0 尺寸初始化。
+function whenLaidOut(callback) {
+  const element = host.value;
+  if (!element) return;
+  if (element.clientWidth >= 8 && element.clientHeight >= 8) {
+    callback();
+    return;
+  }
+  layoutObserver = new ResizeObserver(() => {
+    if (!host.value) return;
+    if (host.value.clientWidth >= 8 && host.value.clientHeight >= 8) {
+      layoutObserver?.disconnect();
+      layoutObserver = null;
+      if (layoutTimer) {
+        clearTimeout(layoutTimer);
+        layoutTimer = null;
+      }
+      callback();
+    }
+  });
+  layoutObserver.observe(element);
+  // 兜底：3 秒还没布局就先建起来，后面 fit 会纠正。
+  layoutTimer = setTimeout(() => {
+    layoutObserver?.disconnect();
+    layoutObserver = null;
+    callback();
+  }, 3000);
+}
+
+function initTerminal() {
+  if (started || !host.value) return;
+  started = true;
+
   term = new Terminal({
     fontSize: 13,
     lineHeight: 1.25,
@@ -72,11 +105,14 @@ onMounted(() => {
   term.loadAddon(fit);
 
   // 宽字符（中文 / emoji）用 Unicode 11 的字宽表，避免列对不齐。
-  unicode = new Unicode11Addon();
+  const unicode = new Unicode11Addon();
   term.loadAddon(unicode);
   term.unicode.activeVersion = "11";
+
   term.open(host.value);
-  uiLog(`term.open 完成，host=${host.value?.clientWidth}x${host.value?.clientHeight}`);
+  uiLog(
+    `term.open 完成，host=${host.value?.clientWidth}x${host.value?.clientHeight}`,
+  );
   term.write(props.pane.welcome + "\r\n");
   tryFit();
   uiLog(`fit 完成，cols=${term.cols} rows=${term.rows}`);
@@ -114,15 +150,23 @@ onMounted(() => {
       term?.focus();
     });
   }
-  } catch (error) {
-    uiLog(`xterm 初始化失败: ${error?.stack || error}`);
-    if (host.value) {
-      host.value.textContent = `终端初始化失败：${error?.message || error}`;
-      host.value.style.color = "#f87171";
-      host.value.style.fontSize = "12px";
-      host.value.style.padding = "12px";
+}
+
+onMounted(() => {
+  uiLog(`XTermPane mount ${props.pane.termName}`);
+  whenLaidOut(() => {
+    try {
+      initTerminal();
+    } catch (error) {
+      uiLog(`xterm 初始化失败: ${error?.stack || error}`);
+      if (host.value) {
+        host.value.textContent = `终端初始化失败：${error?.message || error}`;
+        host.value.style.color = "#f87171";
+        host.value.style.fontSize = "12px";
+        host.value.style.padding = "12px";
+      }
     }
-  }
+  });
 });
 
 watch(
@@ -136,6 +180,8 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  if (layoutTimer) clearTimeout(layoutTimer);
+  layoutObserver?.disconnect();
   observer?.disconnect();
   for (const disposable of disposers) disposable?.dispose?.();
   disposers = [];
