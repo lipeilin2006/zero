@@ -19,10 +19,14 @@ jobs:
         run: |
           mkdir -p dist
           cp target/release/zero-server target/release/zero dist/
-          tar -czf "zero-server-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" -C dist zero-server zero
+          cp packaging/install-server.sh packaging/README.md dist/
+          tar -czf "zero-server-${GITHUB_REF_NAME}-x86_64-linux.tar.gz" -C dist zero-server zero install-server.sh README.md
+          cp packaging/install-server.sh .
       - uses: softprops/action-gh-release@v2
         with:
-          files: zero-server-*.tar.gz
+          files: |
+            zero-server-*.tar.gz
+            install-server.sh
           generate_release_notes: true
           body: |
             服务端二进制（Linux x86_64）和客户端安装包见附件。

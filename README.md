@@ -46,11 +46,14 @@ npm run tauri dev
 脚本会自动：创建系统用户、安装二进制、生成密钥、写 systemd unit、启动服务。
 
 ```bash
-# 在仓库根目录
-sudo packaging/install-server.sh
+# 一行安装（自动下载 release 里的服务端二进制）
+curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/packaging/install-server.sh \
+  | sudo bash -s -- --download
 
-# 或者指定二进制 / 允许所有客户端（仅调试）
+# 或者在仓库根目录，用本地构建好的二进制
 sudo packaging/install-server.sh --bin ./target/release/zero-server
+
+# 调试：跳过白名单
 sudo packaging/install-server.sh --allow-any
 ```
 

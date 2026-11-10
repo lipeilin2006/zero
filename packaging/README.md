@@ -3,7 +3,12 @@
 ## 一键安装（systemd）
 
 ```bash
-sudo packaging/install-server.sh
+# 一行安装：自动从 GitHub Release 下载 x86_64 二进制
+curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/packaging/install-server.sh \
+  | sudo bash -s -- --download
+
+# 或者用本地二进制
+sudo packaging/install-server.sh --bin ./target/release/zero-server
 ```
 
 会做这些事：
@@ -25,6 +30,8 @@ sudo packaging/install-server.sh
 | `--allow-any` | 调试用，跳过白名单 |
 | `--uninstall` | 停止并删除服务和二进制（保留数据） |
 | `--purge` | 配合 `--uninstall`，连数据目录和用户一起删 |
+| `--download` | 没有本地二进制时从 Release 下载（支持 x86_64 Linux） |
+| `--version <tag>` | 配合 `--download` 指定版本，默认 latest |
 | `--dry-run` | 只打印要执行的命令和 unit 内容 |
 
 ## 信任客户端

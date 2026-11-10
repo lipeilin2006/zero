@@ -14,6 +14,8 @@
 #   --user <name>       运行用户（默认 zero）
 #   --data-dir <path>   数据目录（默认 /var/lib/zero-server）
 #   --allow-any         调试用：允许任何客户端（默认走白名单）
+#   --download          没有本地二进制时，从 GitHub Release 下载（默认 latest）
+#   --version <tag>     配合 --download 指定版本（例如 v0.1.0）
 #   --uninstall         停止并移除服务
 #   --purge             卸载时连数据目录一起删
 #   --dry-run           只打印将要执行的命令
@@ -28,6 +30,8 @@ DATA_DIR="/var/lib/zero-server"
 RUN_USER="zero"
 BIN_SRC=""
 ALLOW_ANY=0
+DOWNLOAD=0
+VERSION="latest"
 UNINSTALL=0
 PURGE=0
 DRY_RUN=0
@@ -42,6 +46,8 @@ while [[ $# -gt 0 ]]; do
     --user) RUN_USER="${2:?--user 需要参数}"; shift 2 ;;
     --data-dir) DATA_DIR="${2:?--data-dir 需要参数}"; shift 2 ;;
     --allow-any) ALLOW_ANY=1; shift ;;
+    --download) DOWNLOAD=1; shift ;;
+    --version) VERSION="${2:?--version 需要参数}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     --purge) PURGE=1; shift ;;
     --dry-run) DRY_RUN=1; shift ;;
@@ -104,15 +110,50 @@ locate_binary() {
   done
 }
 
+download_binary() {
+  local arch
+  arch="$(uname -m)"
+  if [[ "$arch" != "x86_64" ]]; then
+    echo "没有现成的 $arch 发布包，请从源码构建：cargo build --release -p zero-server" >&2
+    exit 1
+  fi
+  command -v curl >/dev/null 2>&1 || {
+    echo "需要 curl 才能下载" >&2
+    exit 1
+  }
+  local tag="$VERSION"
+  if [[ "$tag" == "latest" ]]; then
+    tag="$(curl -fsSL https://api.github.com/repos/lipeilin2006/zero/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)"
+  fi
+  [[ -n "$tag" ]] || { echo "拿不到最新版本号" >&2; exit 1; }
+  local url="https://github.com/lipeilin2006/zero/releases/download/${tag}/zero-server-${tag}-x86_64-linux.tar.gz"
+  echo "==> 下载 $url"
+  local tmp
+  tmp="$(mktemp -d)"
+  curl -fL "$url" -o "$tmp/zero-server.tar.gz"
+  tar -xzf "$tmp/zero-server.tar.gz" -C "$tmp"
+  BIN_SRC="$tmp/zero-server"
+  DOWNLOAD_DIR="$tmp"
+}
+
 install_service() {
   need_root
   need_systemd
   locate_binary
 
+  if [[ -z "$BIN_SRC" && "$DOWNLOAD" -eq 1 ]]; then
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+      echo "+ download zero-server ${VERSION} (x86_64-linux)"
+      BIN_SRC="(downloaded zero-server)"
+    else
+      download_binary
+    fi
+  fi
+
   if [[ -z "$BIN_SRC" ]]; then
     echo "找不到 zero-server 二进制。" >&2
     echo "先构建：cargo build --release -p zero-server" >&2
-    echo "或用 --bin 指定路径。" >&2
+    echo "或用 --bin 指定路径，或加 --download 从 GitHub Release 下载。" >&2
     exit 1
   fi
   if [[ ! -f "$BIN_SRC" && "$DRY_RUN" -eq 0 ]]; then
@@ -220,6 +261,10 @@ WantedBy=multi-user.target
   echo
   echo "看日志：journalctl -u $SERVICE_NAME -f"
   echo "卸载：$0 --uninstall [--purge]"
+
+  if [[ -n "${DOWNLOAD_DIR:-}" ]]; then
+    rm -rf "$DOWNLOAD_DIR"
+  fi
 }
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
