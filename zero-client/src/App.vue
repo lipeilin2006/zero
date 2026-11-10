@@ -392,11 +392,6 @@ onUnmounted(() => {
             <small>remote shell over iroh</small>
           </div>
         </div>
-        <div class="topbar-actions">
-          <n-button size="small" type="primary" :loading="busy" @click="pickerOpen = true">
-            新建标签页
-          </n-button>
-        </div>
       </header>
 
       <div class="body">
@@ -451,7 +446,7 @@ onUnmounted(() => {
                 </button>
               </div>
               <n-dropdown trigger="click" :options="plusOptions" @select="onPlusSelect">
-                <button class="tab-add" title="新建标签页（Ctrl+T）">＋</button>
+                <button class="tab-add" title="新建标签页（Ctrl+Shift+T）">＋</button>
               </n-dropdown>
           </div>
 
