@@ -137,7 +137,7 @@ watch(
 
 onBeforeUnmount(() => {
   observer?.disconnect();
-  for (const dispose of disposers) dispose?.();
+  for (const disposable of disposers) disposable?.dispose?.();
   disposers = [];
   unregister?.();
   unregister = null;

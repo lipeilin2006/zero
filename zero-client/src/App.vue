@@ -195,7 +195,14 @@ async function saveServer() {
 
 async function removeServer() {
   if (deleteTarget.value === null) return;
+  const removed = servers.value[deleteTarget.value];
   servers.value.splice(deleteTarget.value, 1);
+  // 这条服务器还开着终端的话一起关掉
+  if (removed) {
+    for (const tab of [...tabs]) {
+      if (tab.endpoint === removed.endpoint) await closeTab(tab);
+    }
+  }
   selectedIndex.value = null;
   deleteTarget.value = null;
   deleteOpen.value = false;
@@ -427,8 +434,7 @@ onUnmounted(() => {
 
         <main class="content">
           <!-- 终端工作区 -->
-          <template v-if="tabs.length">
-            <div class="tabbar">
+          <div v-if="tabs.length" class="tabbar">
               <div class="tab-scroll">
                 <button
                   v-for="tab in tabs"
@@ -446,8 +452,9 @@ onUnmounted(() => {
               <n-dropdown trigger="click" :options="plusOptions" @select="onPlusSelect">
                 <button class="tab-add" title="新建标签页（Ctrl+T）">＋</button>
               </n-dropdown>
-            </div>
+          </div>
 
+          <div v-show="activeTab" class="term-view">
             <div class="term-toolbar">
               <button class="ghost" @click="ctrl('\u0003')">Ctrl-C</button>
               <button class="ghost" @click="ctrl('\u001b')">Esc</button>
@@ -486,11 +493,11 @@ onUnmounted(() => {
                 </div>
               </div>
             </div>
-          </template>
+          </div>
 
           <!-- 服务器详情 -->
-          <template v-else-if="selected">
-            <div class="content-scroll">
+          <template v-if="!activeTab">
+            <div v-if="selected" class="content-scroll">
               <div class="detail-header">
                 <div>
                   <p class="eyebrow">SERVER DETAILS</p>
@@ -524,16 +531,15 @@ onUnmounted(() => {
                 <n-button type="error" secondary @click="deleteTarget = selectedIndex; deleteOpen = true">删除服务器</n-button>
               </div>
             </div>
-          </template>
-
-          <div v-else class="welcome">
+            <div v-else class="welcome">
             <div class="welcome-card">
               <div class="welcome-icon">⌘</div>
               <h3>还没有打开终端</h3>
               <p>从左侧选择服务器，双击或点「打开终端」开始；也可以直接点「新建标签页」。</p>
               <n-button type="primary" @click="pickerOpen = true">新建标签页</n-button>
             </div>
-          </div>
+            </div>
+          </template>
 
           <footer v-if="status" class="statusbar">{{ status }}</footer>
         </main>
@@ -1056,6 +1062,13 @@ body {
 .term-hint {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+.term-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .term-body-outer {
