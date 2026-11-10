@@ -295,7 +295,7 @@ fn load_or_create_secret(path: &Path) -> Result<SecretKey> {
                 .map_err(|_| anyhow::anyhow!("client key must contain 32 bytes"))?;
             return Ok(SecretKey::from_bytes(&bytes));
         }
-        return Ok(value.parse().context("parse client secret key")?);
+        return value.parse().context("parse client secret key");
     }
 
     let secret = SecretKey::generate();
@@ -385,8 +385,8 @@ fn encode_mouse(mouse: MouseEvent, modes: &TerminalModes) -> Vec<u8> {
     format!(
         "\x1b[<{};{};{}{}",
         button + modifier,
-        u16::from(mouse.column) + 1,
-        u16::from(mouse.row) + 1,
+        mouse.column + 1,
+        mouse.row + 1,
         suffix
     )
     .into_bytes()
@@ -551,10 +551,7 @@ fn cmd_list(json: bool) -> Result<()> {
             .cmp(&a.last_opened.unwrap_or(0))
             .then(a.name.cmp(&b.name))
     });
-    println!(
-        "{:<16} {:<16} {:<20} {}",
-        "名称", "endpoint", "标签", "最近打开"
-    );
+    println!("{:<16} {:<16} {:<20} 最近打开", "名称", "endpoint", "标签");
     for server in &servers {
         let tags = if server.tags.is_empty() {
             "-".to_string()

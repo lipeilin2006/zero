@@ -1,0 +1,28 @@
+# 参考用的 systemd unit（install-server.sh 会自动生成同样的内容）
+# 手动安装时放到 /etc/systemd/system/zero-server.service
+[Unit]
+Description=Zero remote shell server (iroh)
+Documentation=https://github.com/lipeilin2006/zero
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zero
+Group=zero
+ExecStart=/usr/local/bin/zero-server run --key /var/lib/zero-server/secret.key --allowlist /var/lib/zero-server/authorized_keys
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/zero-server
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,5 @@
 pub mod session;
 
-use std::path::PathBuf;
-
 use tauri::Manager;
 
 use session::SessionManager;
@@ -93,63 +91,9 @@ async fn session_close(id: u32, sessions: tauri::State<'_, SessionManager>) -> R
     Ok(())
 }
 
-/// 仍然保留：用系统终端模拟器打开 CLI（旧行为，作为兜底）。
-#[tauri::command]
-fn launch_zero(endpoint: String) -> Result<(), String> {
-    let executable = if let Ok(path) = std::env::var("ZERO_BIN") {
-        PathBuf::from(path)
-    } else {
-        let filename = format!("zero{}", std::env::consts::EXE_SUFFIX);
-        std::env::current_exe()
-            .ok()
-            .and_then(|path| path.parent().map(|parent| parent.join(&filename)))
-            .filter(|path| path.exists())
-            .unwrap_or_else(|| PathBuf::from(filename))
-    };
-
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        std::process::Command::new(executable)
-            .arg(endpoint)
-            .creation_flags(0x00000010)
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    {
-        for (terminal, option) in [
-            ("x-terminal-emulator", "-e"),
-            ("gnome-terminal", "--"),
-            ("konsole", "-e"),
-            ("xfce4-terminal", "-x"),
-            ("alacritty", "-e"),
-            ("kitty", ""),
-            ("xterm", "-e"),
-        ] {
-            let mut command = std::process::Command::new(terminal);
-            if !option.is_empty() {
-                command.arg(option);
-            }
-            if command.arg(&executable).arg(&endpoint).spawn().is_ok() {
-                return Ok(());
-            }
-        }
-        Err("未找到可用的终端模拟器".into())
-    }
-
-    #[cfg(not(any(windows, unix)))]
-    {
-        Err("不支持当前操作系统".into())
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             app.manage(SessionManager::new(app.handle().clone()));
             Ok(())
@@ -167,7 +111,6 @@ pub fn run() {
             auto_endpoint,
             list_servers,
             save_servers,
-            launch_zero,
             session_open,
             session_input,
             session_resize,
