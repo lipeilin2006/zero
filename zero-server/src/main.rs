@@ -738,8 +738,7 @@ mod tests {
     #[test]
     fn config_can_override_paths_and_flags() {
         let config: ServerConfig =
-            serde_json::from_str(r#"{"key":"/k","allowlist":"/a","allow_all":true}"#)
-                .unwrap();
+            serde_json::from_str(r#"{"key":"/k","allowlist":"/a","allow_all":true}"#).unwrap();
         let paths = resolve_paths(Path::new("/cfg/config.json"), &config);
         assert_eq!(paths.key, PathBuf::from("/k"));
         assert_eq!(paths.allowlist, PathBuf::from("/a"));
