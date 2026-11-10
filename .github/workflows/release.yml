@@ -17,10 +17,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KEEP: ${{ github.ref_name }}
         run: |
-          gh release list --limit 100 --json tagName --jq '.[].tagName' | while read -r tag; do
+          set -euo pipefail
+          # 没有 checkout，必须显式指定仓库
+          gh release list -R "$GITHUB_REPOSITORY" --limit 100 --json tagName             --jq '.[].tagName' | while read -r tag; do
             if [ -n "$tag" ] && [ "$tag" != "$KEEP" ]; then
               echo "删除旧版本：$tag"
-              gh release delete "$tag" --yes --cleanup-tag || true
+              gh release delete "$tag" -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
             fi
           done
 
