@@ -9,6 +9,8 @@
 | `zero-client` | 服务器列表写文件不是原子的，写到一半崩会丢列表 | 先写 `.tmp` 再 rename |
 | `zero-client` | Tauri 的 CSP 是 `null` | 配了 `default-src 'self'` 的 CSP |
 | `zero` | 服务器正常关连接时打印 `Error: connection lost` 并退出码非 0 | 当成正常断开处理 |
+| `zero-client` | xterm 用 `allowProposedApi: false` 却加载 unicode11（属于 proposed API），`term.unicode` 直接抛错，窗格空白且无法输入 | 打开 allowProposedApi，初始化包 try/catch，失败时显示原因 |
+| `zero-client` | 首屏提示符可能在 xterm 挂载前就到达，被丢掉 | 未挂载前先缓存输出（上限 512KB），挂载后补写 |
 | `zero` | 原来不在终端里跑就报错 | 未改；需要 TTY，客户端内嵌后不再走 CLI |
 
 ## 还没做

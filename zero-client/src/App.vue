@@ -15,6 +15,7 @@ import {
   setActivePane,
   splitPane,
   tabs,
+  uiLog,
 } from "./terminals";
 
 const servers = ref([]);
@@ -204,6 +205,7 @@ async function removeServer() {
 
 async function openServerTab(server) {
   if (!server) return;
+  uiLog(`openServerTab ${server.name}`);
   busy.value = true;
   const splitting = splitMode.value && activeTab.value;
   setStatus(splitting ? `正在拆分到 ${server.name}…` : `正在连接 ${server.name}…`);
@@ -213,8 +215,13 @@ async function openServerTab(server) {
     } else {
       await openTab(server);
     }
+    // 会话已经建好，先把加载状态收掉；保存列表放后台，别让它卡住按钮。
+    busy.value = false;
+    uiLog("openTab 完成");
     server.last_opened = Math.floor(Date.now() / 1000);
-    await invoke("save_servers", { servers: servers.value });
+    invoke("save_servers", { servers: servers.value })
+      .then(() => uiLog("save_servers 完成"))
+      .catch(() => {});
     setStatus(splitting ? `已拆分：${server.name}` : `已连接：${server.name}`);
     pickerOpen.value = false;
     splitMode.value = null;
@@ -333,9 +340,29 @@ function onClosePaneEvent(event) {
   if (tab && pane) closePane(tab, pane);
 }
 
+window.addEventListener("error", (event) => {
+  uiLog(`window error: ${event.message}`);
+});
+window.addEventListener("zero:ui-error", (event) => {
+  setStatus(`界面出错：${event.detail}`);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  uiLog(`unhandled rejection: ${event.reason}`);
+});
+
 onMounted(async () => {
+  uiLog("app mounted");
   await initSessionEvents();
   await loadServers();
+  try {
+    const auto = await invoke("auto_endpoint");
+    if (auto) {
+      uiLog(`auto open ${auto.slice(0, 24)}…`);
+      openServerTab({ name: "auto", endpoint: auto });
+    }
+  } catch {
+    // 调试功能失败无所谓
+  }
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("zero:close-pane", onClosePaneEvent);
 });

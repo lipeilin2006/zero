@@ -19,6 +19,28 @@ fn save_servers(servers: Vec<SavedServer>) -> Result<(), String> {
     zero_store::save(&servers).map_err(|error| error.to_string())
 }
 
+/// 调试用：把前端日志追加到 ZERO_UI_LOG 指向的文件（没设就什么都不做）。
+#[tauri::command]
+fn ui_log(line: String) {
+    let Ok(path) = std::env::var("ZERO_UI_LOG") else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
+}
+
+/// 调试用：自动打开一个终端（ZERO_AUTO_ENDPOINT）。
+#[tauri::command]
+fn auto_endpoint() -> String {
+    std::env::var("ZERO_AUTO_ENDPOINT").unwrap_or_default()
+}
+
 /// 打开一个内嵌终端会话，返回会话 id。
 #[tauri::command]
 async fn session_open(
@@ -141,6 +163,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            ui_log,
+            auto_endpoint,
             list_servers,
             save_servers,
             launch_zero,

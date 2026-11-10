@@ -67,6 +67,15 @@ zero rm dev
 zero dev                           # 直接按名字连接
 ```
 
+## 调试
+
+两个环境变量，只在开发/排查时用：
+
+- `ZERO_UI_LOG=/tmp/ui.log`：前端把关键步骤（打开会话、xterm 挂载、首个输出/输入）追加到文件
+- `ZERO_AUTO_ENDPOINT=<ticket 或 endpoint id>`：启动后自动打开一个终端，方便无头验证
+
+配合 `xvfb-run` 可以在没有显示器的机器上跑起来截图。
+
 ## 已知限制
 
 - 拆分是等分，暂不支持拖拽调整比例

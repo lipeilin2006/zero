@@ -4,7 +4,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import "@xterm/xterm/css/xterm.css";
-import { registerTerminal, resizeSession, sendInput } from "../terminals";
+import { registerTerminal, resizeSession, sendInput, uiLog } from "../terminals";
 
 const props = defineProps({
   pane: { type: Object, required: true },
@@ -31,6 +31,8 @@ function tryFit() {
 }
 
 onMounted(() => {
+  uiLog(`XTermPane mount ${props.pane.termName}`);
+  try {
   term = new Terminal({
     fontSize: 13,
     lineHeight: 1.25,
@@ -40,7 +42,8 @@ onMounted(() => {
       '"JetBrains Mono", "Cascadia Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Color Emoji", monospace',
     cursorBlink: true,
     scrollback: 8000,
-    allowProposedApi: false,
+    // unicode11 字宽表属于 proposed API，必须放开
+    allowProposedApi: true,
     theme: {
       background: "#0d1117",
       foreground: "#d5dde8",
@@ -73,10 +76,20 @@ onMounted(() => {
   term.loadAddon(unicode);
   term.unicode.activeVersion = "11";
   term.open(host.value);
+  uiLog(`term.open 完成，host=${host.value?.clientWidth}x${host.value?.clientHeight}`);
   term.write(props.pane.welcome + "\r\n");
   tryFit();
+  uiLog(`fit 完成，cols=${term.cols} rows=${term.rows}`);
 
-  disposers.push(term.onData((data) => sendInput(props.pane, data)));
+  disposers.push(
+    term.onData((data) => {
+      if (!props.pane.firstInput) {
+        props.pane.firstInput = true;
+        uiLog(`首个输入 ${props.pane.termName} len=${data.length}`);
+      }
+      sendInput(props.pane, data);
+    }),
+  );
   disposers.push(
     term.onResize(({ cols, rows }) => {
       resizeSession(props.pane, cols, rows);
@@ -100,6 +113,15 @@ onMounted(() => {
       tryFit();
       term?.focus();
     });
+  }
+  } catch (error) {
+    uiLog(`xterm 初始化失败: ${error?.stack || error}`);
+    if (host.value) {
+      host.value.textContent = `终端初始化失败：${error?.message || error}`;
+      host.value.style.color = "#f87171";
+      host.value.style.fontSize = "12px";
+      host.value.style.padding = "12px";
+    }
   }
 });
 

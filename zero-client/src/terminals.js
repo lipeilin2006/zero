@@ -14,13 +14,26 @@ export const tabs = reactive([]);
 export const activeTab = ref(null);
 /// 窗格里的 xterm 实例：termName -> { write, focus, fit, dispose }
 const terminals = new Map();
+/// 终端组件还没挂载时先攒着输出，挂载后一次性写进去（避免丢掉首屏提示符）。
+const pendingOutput = new Map();
 
 let tabSeq = 0;
 let paneSeq = 0;
 let listening = false;
 
+let logSeq = 0;
+export function uiLog(message) {
+  logSeq += 1;
+  invoke("ui_log", { line: `${Date.now()} #${logSeq} ${message}` }).catch(() => {});
+}
+
 export function registerTerminal(termName, api) {
   terminals.set(termName, api);
+  const buffered = pendingOutput.get(termName);
+  if (buffered) {
+    pendingOutput.delete(termName);
+    for (const chunk of buffered) api.write(chunk);
+  }
   return () => {
     if (terminals.get(termName) === api) terminals.delete(termName);
   };
@@ -31,19 +44,38 @@ export function focusTerminal(termName) {
 }
 
 function writeText(pane, text) {
-  terminals.get(pane.termName)?.write(text);
+  const terminal = terminals.get(pane.termName);
+  if (terminal) {
+    terminal.write(text);
+  } else {
+    writeBytes(pane, new TextEncoder().encode(text));
+  }
 }
 
 function writeBytes(pane, bytes) {
-  terminals.get(pane.termName)?.write(bytes);
+  const terminal = terminals.get(pane.termName);
+  if (terminal) {
+    terminal.write(bytes);
+    return;
+  }
+  const queue = pendingOutput.get(pane.termName) || [];
+  queue.push(bytes);
+  // 别无限攒：最多留 512KB，超了就丢最旧的。
+  let total = queue.reduce((sum, chunk) => sum + chunk.length, 0);
+  while (total > 512 * 1024 && queue.length > 1) {
+    total -= queue.shift().length;
+  }
+  pendingOutput.set(pane.termName, queue);
 }
 
 async function createPane(server) {
+  uiLog(`session_open 请求 ${server.name}`);
   const id = await invoke("session_open", {
     endpoint: server.endpoint,
     cols: 120,
     rows: 32,
   });
+  uiLog(`session_open 返回 id=${id}`);
   return reactive({
     id,
     key: ++paneSeq,
@@ -107,6 +139,7 @@ export async function closePane(tab, pane) {
     }
   }
   terminals.delete(pane.termName);
+  pendingOutput.delete(pane.termName);
   tab.panes.splice(index, 1);
   if (tab.panes.length === 0) {
     await closeTab(tab);
@@ -186,6 +219,10 @@ export async function initSessionEvents() {
     }
     if (!pane) return;
     if (payload.kind === "data") {
+      if (!pane.firstData) {
+        pane.firstData = true;
+        uiLog(`首个输出 ${pane.termName} bytes=${payload.data.length}`);
+      }
       try {
         const raw = atob(payload.data);
         const bytes = new Uint8Array(raw.length);
