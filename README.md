@@ -72,8 +72,7 @@ sudo -u zero /usr/local/bin/zero-server trust <client-id> \
 取带地址的 ticket（客户端填这个比裸 id 更稳，不依赖发现服务）：
 
 ```bash
-sudo -u zero /usr/local/bin/zero-server ticket \
-  --key /var/lib/zero-server/secret.key
+cat /var/lib/zero-server/ticket
 ```
 
 卸载：`sudo packaging/install-server.sh --uninstall`（加 `--purge` 连数据目录一起删）。

@@ -216,7 +216,7 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=$DATA_DIR
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
@@ -252,8 +252,16 @@ WantedBy=multi-user.target
   echo "服务器 endpoint id："
   sudo -u "$RUN_USER" "$PREFIX/zero-server" id --key "$DATA_DIR/secret.key" | head -1
   echo
-  echo "把带地址的 ticket 填到客户端（推荐）："
-  echo "  sudo -u $RUN_USER $PREFIX/zero-server ticket --key $DATA_DIR/secret.key"
+  echo "客户端填这个 ticket（带地址，推荐）："
+  for _ in $(seq 1 120); do
+    [[ -s "$DATA_DIR/ticket" ]] && break
+    sleep 0.5
+  done
+  if [[ -s "$DATA_DIR/ticket" ]]; then
+    cat "$DATA_DIR/ticket"
+  else
+    echo "（ticket 还没生成，稍后再看：cat $DATA_DIR/ticket）"
+  fi
   echo
   echo "信任客户端（客户端 id 用 zero --show-id 取）："
   echo "  sudo -u $RUN_USER $PREFIX/zero-server trust <client-id> \\"

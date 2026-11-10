@@ -55,8 +55,11 @@ sudo -u zero /usr/local/bin/zero-server untrust <client-id> --key /var/lib/zero-
 推荐用带地址的 ticket，不依赖发现服务的传播：
 
 ```bash
-sudo -u zero /usr/local/bin/zero-server ticket --key /var/lib/zero-server/secret.key
+cat /var/lib/zero-server/ticket
 ```
+
+> 服务端启动时会把 ticket 写到数据目录；`zero-server ticket` 也是读这个文件。
+> 不要用 `ticket --bind` 对着正在运行的服务生成——那会顶掉它的 relay 连接。
 
 也可以填裸 endpoint id（`zero-server id`），客户端会自动重试等发现记录。
 

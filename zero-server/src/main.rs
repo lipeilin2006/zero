@@ -70,6 +70,9 @@ enum Command {
     Ticket {
         #[arg(long)]
         key: Option<PathBuf>,
+        /// 现场 bind 生成（会顶掉正在运行的同 key 实例，通常不需要）
+        #[arg(long)]
+        bind: bool,
     },
 }
 
@@ -342,7 +345,9 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // 日志走 stderr：stdout 留给 id / ticket / trusted 这些可被脚本消费的输出。
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
@@ -368,15 +373,37 @@ async fn main() -> Result<()> {
             println!("key file: {}", path.display());
             Ok(())
         }
-        Some(Command::Ticket { key }) => print_ticket(key).await,
+        Some(Command::Ticket { key, bind }) => print_ticket(key, bind).await,
         Some(Command::Run(args)) => run(args).await,
         None => run(cli.run).await,
     }
 }
 
-/// 起一个临时 endpoint 拿到带地址的 ticket 后退出。
-async fn print_ticket(key: Option<PathBuf>) -> Result<()> {
+/// 打印带地址的 ticket。
+///
+/// 默认读运行中的服务写下的 `ticket` 文件——不能为了打印 ticket 再 bind 一个
+/// 相同 key 的 endpoint，那会把正在跑的服务从 relay 上挤掉。
+async fn print_ticket(key: Option<PathBuf>, bind: bool) -> Result<()> {
     let path = key.unwrap_or_else(default_key_path);
+    let ticket_path = path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."))
+        .join("ticket");
+
+    if !bind {
+        if let Ok(text) = std::fs::read_to_string(&ticket_path) {
+            let ticket = text.trim();
+            if EndpointTicket::decode_string(ticket).is_ok() {
+                println!("{ticket}");
+                return Ok(());
+            }
+        }
+        anyhow::bail!(
+            "还没有 {}。先启动 zero-server（启动时会写这个文件），\n             或者用 zero-server ticket --bind 现场生成（注意：会顶掉正在运行的同 key 实例）。",
+            ticket_path.display()
+        );
+    }
+
     let secret = load_or_create_secret(&path)?;
     let endpoint = Endpoint::builder(presets::N0)
         .secret_key(secret)
@@ -427,6 +454,15 @@ async fn run(args: RunArgs) -> Result<()> {
     let addr = endpoint.addr();
     info!("listening. EndpointAddr: {addr:?}");
     let ticket = EndpointTicket::new(addr).encode_string();
+    // 落盘一份：`zero-server ticket` 直接读它，不用再 bind 一个同身份的
+    // endpoint（两个实例用同一个 key 会把运行中的实例从 relay 挤掉）。
+    if let Some(parent) = key_path.parent() {
+        let ticket_path = parent.join("ticket");
+        let tmp = ticket_path.with_extension("tmp");
+        if std::fs::write(&tmp, &ticket).is_ok() {
+            let _ = std::fs::rename(&tmp, &ticket_path);
+        }
+    }
     info!("server ticket: {ticket}");
     info!("clients can connect with: zero {ticket}");
 
