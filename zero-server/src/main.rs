@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets};
+use iroh_tickets::{Ticket, endpoint::EndpointTicket};
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use tokio::sync::Semaphore;
 use tracing::{error, info, warn};
@@ -61,6 +62,12 @@ enum Command {
 
     /// 打印服务器自己的 endpoint id
     Id {
+        #[arg(long)]
+        key: Option<PathBuf>,
+    },
+
+    /// 打印带地址的 ticket（推荐客户端用这个，不依赖发现服务）
+    Ticket {
         #[arg(long)]
         key: Option<PathBuf>,
     },
@@ -361,9 +368,24 @@ async fn main() -> Result<()> {
             println!("key file: {}", path.display());
             Ok(())
         }
+        Some(Command::Ticket { key }) => print_ticket(key).await,
         Some(Command::Run(args)) => run(args).await,
         None => run(cli.run).await,
     }
+}
+
+/// 起一个临时 endpoint 拿到带地址的 ticket 后退出。
+async fn print_ticket(key: Option<PathBuf>) -> Result<()> {
+    let path = key.unwrap_or_else(default_key_path);
+    let secret = load_or_create_secret(&path)?;
+    let endpoint = Endpoint::builder(presets::N0)
+        .secret_key(secret)
+        .bind()
+        .await?;
+    endpoint.online().await;
+    println!("{}", EndpointTicket::new(endpoint.addr()).encode_string());
+    endpoint.close().await;
+    Ok(())
 }
 
 async fn run(args: RunArgs) -> Result<()> {
@@ -404,7 +426,9 @@ async fn run(args: RunArgs) -> Result<()> {
     endpoint.online().await;
     let addr = endpoint.addr();
     info!("listening. EndpointAddr: {addr:?}");
-    info!("clients can connect with: zero {endpoint_id}");
+    let ticket = EndpointTicket::new(addr).encode_string();
+    info!("server ticket: {ticket}");
+    info!("clients can connect with: zero {ticket}");
 
     let shell = args.shell.clone().unwrap_or_else(default_shell);
     let locale = pick_locale(args.locale.as_deref());

@@ -52,6 +52,11 @@ zero-server untrust <client-id>    # 取消信任
 
 客户端 id 用 `zero --show-id` 取。
 
+服务端启动日志里还有一行 `server ticket: ...`（带地址的 ticket）。
+客户端「Endpoint ID」那一栏既接受裸 endpoint id，也接受这个 ticket；
+ticket 不依赖发现服务，刚启动的服务器用 ticket 能立刻连上。
+也可以单独打印：`zero-server ticket`。
+
 CLI 也可以管理服务器列表（和 GUI 共享）：
 
 ```bash

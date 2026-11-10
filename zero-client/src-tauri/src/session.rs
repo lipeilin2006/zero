@@ -7,18 +7,22 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
-use iroh::{endpoint::presets, Endpoint, EndpointId, SecretKey};
+use iroh::{endpoint::presets, Endpoint, EndpointAddr, SecretKey};
+use iroh_tickets::{endpoint::EndpointTicket, Ticket};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter};
+use std::time::Instant;
+use tauri::AppHandle;
 use tokio::sync::{mpsc, Mutex};
+use tokio::time::{timeout, Duration};
 use zero_proto::{read_msg, write_msg, ClientMsg, ServerMsg, ALPN};
 
 /// 同时最多开多少个标签页，防止误点把内存打满。
 const MAX_SESSIONS: usize = 8;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SessionEvent {
     /// 远端 PTY 的输出（base64 原始字节）。
@@ -41,8 +45,22 @@ struct SessionHandle {
     writer: tokio::task::JoinHandle<()>,
 }
 
+/// 事件出口：生产环境是 Tauri 事件，测试里可以换成收集器。
+pub trait SessionEmitter: Send + Sync + 'static {
+    fn emit(&self, event: SessionEvent);
+}
+
+struct TauriEmitter(AppHandle);
+
+impl SessionEmitter for TauriEmitter {
+    fn emit(&self, event: SessionEvent) {
+        use tauri::Emitter as _;
+        let _ = self.0.emit("zero:session", event);
+    }
+}
+
 pub struct SessionManager {
-    app: AppHandle,
+    emitter: Arc<dyn SessionEmitter>,
     endpoint: Mutex<Option<Endpoint>>,
     sessions: Mutex<HashMap<u32, SessionHandle>>,
     next_id: AtomicU32,
@@ -50,8 +68,12 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new(app: AppHandle) -> Self {
+        Self::with_emitter(Arc::new(TauriEmitter(app)))
+    }
+
+    pub fn with_emitter(emitter: Arc<dyn SessionEmitter>) -> Self {
         Self {
-            app,
+            emitter,
             endpoint: Mutex::new(None),
             sessions: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
@@ -66,40 +88,48 @@ impl SessionManager {
             return Ok(endpoint.clone());
         }
         let secret = load_or_create_secret(&key_path())?;
-        let endpoint = Endpoint::builder(presets::N0)
-            .secret_key(secret)
-            .bind()
-            .await
-            .context("绑定 iroh 端点失败")?;
-        endpoint.online().await;
+        let endpoint = timeout(Duration::from_secs(20), async {
+            Endpoint::builder(presets::N0)
+                .secret_key(secret)
+                .bind()
+                .await
+        })
+        .await
+        .map_err(|_| anyhow!("初始化网络超时（检查网络或防火墙是否拦了 UDP）"))?
+        .context("绑定 iroh 端点失败")?;
+        // 只等一小会儿 relay：ticket 自带地址，裸 id 也能在 connect 里再等。
+        let _ = timeout(Duration::from_secs(2), endpoint.online()).await;
         *guard = Some(endpoint.clone());
         Ok(endpoint)
     }
 
-    pub async fn open(&self, endpoint_id: &str, cols: u16, rows: u16) -> Result<u32> {
+    pub async fn open(&self, target: &str, cols: u16, rows: u16) -> Result<u32> {
         if self.sessions.lock().await.len() >= MAX_SESSIONS {
             bail!("最多同时打开 {MAX_SESSIONS} 个终端");
         }
-        let server: EndpointId = endpoint_id
-            .trim()
-            .parse()
-            .map_err(|_| anyhow!("Endpoint ID 格式不对"))?;
+        let addr = parse_addr(target)?;
 
         let endpoint = self.endpoint().await?;
-        let connection = endpoint
-            .connect(server, ALPN)
+
+        let connection = connect_with_retry(&endpoint, addr).await?;
+        let (mut send, mut recv) = timeout(Duration::from_secs(15), connection.open_bi())
             .await
-            .context("连接服务器失败")?;
-        let (mut send, mut recv) = connection.open_bi().await.context("打开双向流出错")?;
+            .map_err(|_| anyhow!("打开流超时"))?
+            .context("打开双向流出错")?;
 
         // 握手：先要 shell，再等 Granted / Denied。
-        write_msg(&mut send, &ClientMsg::Shell { cols, rows })
+        timeout(
+            Duration::from_secs(10),
+            write_msg(&mut send, &ClientMsg::Shell { cols, rows }),
+        )
+        .await
+        .map_err(|_| anyhow!("发送 Shell 请求超时"))?
+        .context("发送 Shell 请求失败")?;
+        let handshake = timeout(Duration::from_secs(15), read_msg::<_, ServerMsg>(&mut recv))
             .await
-            .context("发送 Shell 请求失败")?;
-        match read_msg::<_, ServerMsg>(&mut recv)
-            .await
-            .context("读取握手响应失败")?
-        {
+            .map_err(|_| anyhow!("服务器长时间没有响应（确认服务端版本和防火墙）"))?
+            .context("读取握手响应失败")?;
+        match handshake {
             Some(ServerMsg::Granted) => {}
             Some(ServerMsg::Denied { reason }) => bail!("服务器拒绝：{reason}"),
             Some(_) => bail!("服务器返回了意外的握手响应"),
@@ -128,37 +158,35 @@ impl SessionManager {
             let _ = send.finish();
         });
 
-        let app = self.app.clone();
+        let emitter = self.emitter.clone();
         let conn = connection.clone();
         let reader = tokio::spawn(async move {
             loop {
                 match read_msg::<_, ServerMsg>(&mut recv).await {
                     Ok(Some(ServerMsg::Output { data })) => {
-                        let _ = app.emit(
-                            "zero:session",
-                            SessionEvent::Data {
-                                id,
-                                data: base64_encode(&data),
-                            },
-                        );
+                        emitter.emit(SessionEvent::Data {
+                            id,
+                            data: base64_encode(&data),
+                        });
                     }
                     Ok(Some(ServerMsg::Exit { code })) => {
-                        let _ = app.emit("zero:session", SessionEvent::Exit { id, code });
+                        emitter.emit(SessionEvent::Exit { id, code });
                         break;
                     }
                     Ok(Some(_)) => {}
                     Ok(None) => {
-                        let _ = app.emit("zero:session", SessionEvent::Exit { id, code: -1 });
+                        emitter.emit(SessionEvent::Exit { id, code: -1 });
                         break;
                     }
                     Err(error) => {
-                        let _ = app.emit(
-                            "zero:session",
-                            SessionEvent::Error {
-                                id,
-                                message: error.to_string(),
-                            },
-                        );
+                        let message = error.to_string();
+                        // 正常收尾时服务器会直接关连接，不必当错误报。
+                        if message.contains("connection lost") || message.contains("closed by peer")
+                        {
+                            emitter.emit(SessionEvent::Exit { id, code: -1 });
+                        } else {
+                            emitter.emit(SessionEvent::Error { id, message });
+                        }
                         break;
                     }
                 }
@@ -220,6 +248,55 @@ impl SessionManager {
             self.close(id).await;
         }
     }
+}
+
+/// 连接带重试：裸 endpoint id 要靠发现服务拿地址，服务端刚启动时
+/// 可能还查不到（"No addressing information"）。ticket 自带地址，基本一次就成。
+async fn connect_with_retry(
+    endpoint: &Endpoint,
+    addr: EndpointAddr,
+) -> Result<iroh::endpoint::Connection> {
+    let deadline = Instant::now() + Duration::from_secs(35);
+    loop {
+        match timeout(
+            Duration::from_secs(15),
+            endpoint.connect(addr.clone(), ALPN),
+        )
+        .await
+        {
+            Ok(Ok(connection)) => return Ok(connection),
+            Ok(Err(error)) => {
+                if Instant::now() >= deadline {
+                    return Err(anyhow!(
+                        "连接失败：{error}\n如果服务器刚启动，等几秒再试；或直接服务端日志里的 ticket（带地址）会更稳。"
+                    ));
+                }
+            }
+            Err(_) => {
+                if Instant::now() >= deadline {
+                    return Err(anyhow!(
+                        "连接超时：服务器不可达或地址没有解析出来。\n可以换成服务端日志里的 ticket（带地址）再试。"
+                    ));
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
+
+/// 支持两种写法：`zero://...` 这种 ticket（带地址），或裸 endpoint id。
+fn parse_addr(value: &str) -> Result<EndpointAddr> {
+    let value = value.trim();
+    if value.is_empty() {
+        bail!("endpoint 不能为空");
+    }
+    if let Ok(ticket) = EndpointTicket::decode_string(value) {
+        return Ok(ticket.endpoint_addr().clone());
+    }
+    let id = value
+        .parse()
+        .map_err(|_| anyhow!("既不是 endpoint id，也不是合法的 ticket"))?;
+    Ok(EndpointAddr::new(id))
 }
 
 fn base64_encode(bytes: &[u8]) -> String {

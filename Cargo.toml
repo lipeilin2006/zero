@@ -4,6 +4,7 @@ members = ["zero-proto", "zero-store", "zero-server", "zero", "zero-client/src-t
 
 [workspace.dependencies]
 iroh = "1.4"
+iroh-tickets = "1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

@@ -474,7 +474,7 @@ onUnmounted(() => {
                 </n-button>
               </div>
 
-              <n-card title="Endpoint ID" size="small" class="card">
+              <n-card title="Endpoint / Ticket" size="small" class="card">
                 <div class="endpoint-row">
                   <code>{{ selected.endpoint }}</code>
                   <n-button size="small" @click="copyEndpoint">复制</n-button>
@@ -519,7 +519,7 @@ onUnmounted(() => {
           <n-input v-model:value="draft.name" placeholder="例如：开发机" />
         </n-form-item>
         <n-form-item label="Endpoint ID">
-          <n-input v-model:value="draft.endpoint" placeholder="6300de3372e3…" />
+          <n-input v-model:value="draft.endpoint" placeholder="endpoint id 或 ticket" />
         </n-form-item>
         <n-form-item label="标签（逗号分隔）">
           <n-input v-model:value="draft.tags" placeholder="开发, Linux, 生产" />

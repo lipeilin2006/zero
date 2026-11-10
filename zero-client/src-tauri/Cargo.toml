@@ -25,6 +25,7 @@ dirs = "6"
 zero-store = { path = "../../zero-store" }
 zero-proto = { path = "../../zero-proto" }
 iroh = "1.4"
+iroh-tickets = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"
 base64 = "0.22"

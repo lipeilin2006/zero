@@ -1,4 +1,4 @@
-mod session;
+pub mod session;
 
 use std::path::PathBuf;
 
