@@ -53,6 +53,9 @@ npm run tauri dev
 脚本做全局安装：二进制到 `/usr/local/bin`，配置和密钥统一放 `/etc/zero/server`，
 创建专用 `zero` 用户和 systemd 服务。
 
+> 如果报 `/usr/bin/env: ‘bash\r’`，说明脚本被 Windows 换行污染了：
+> `sed -i 's/\r$//' install-server.sh` 后再跑。
+
 ```bash
 # 一行安装（自动下载当前架构的服务端）
 curl -fsSL https://raw.githubusercontent.com/lipeilin2006/zero/main/install-server.sh \

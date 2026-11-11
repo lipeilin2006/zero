@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+# shell 脚本必须是 LF，否则 Linux 上会报 bash\r
+*.sh text eol=lf
