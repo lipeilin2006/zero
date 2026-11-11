@@ -15,6 +15,7 @@
 #   --arch <arch>       覆盖架构检测（x86_64 / aarch64）
 #   --version <tag>     指定下载版本（默认 latest）
 #   --allow-any         调试用：允许任何客户端（默认走白名单）
+#   --hardened          更严的 systemd 沙箱（会禁止 su/sudo）
 #   --download          从 GitHub Release 下载（默认行为，可省略）
 #   --no-download       只用本地二进制，不联网
 #   --uninstall         停止并移除服务和二进制
@@ -38,6 +39,7 @@ ARCH_OVERRIDE=""
 UNINSTALL=0
 PURGE=0
 DRY_RUN=0
+HARDENED=0
 
 usage() {
   cat <<'USAGE'
@@ -53,6 +55,7 @@ zero-server 一键全局安装（systemd）
   --arch <arch>       覆盖架构检测（x86_64 / aarch64，默认自动）
   --version <tag>     指定下载版本（默认 latest）
   --allow-any         调试用：允许任何客户端（默认走白名单）
+  --hardened          更严的沙箱（会禁止 su/sudo）
   --download          从 GitHub Release 下载（默认行为，可省略）
   --no-download       只用本地二进制，不联网
   --uninstall         停止并移除服务和二进制
@@ -70,6 +73,7 @@ while [[ $# -gt 0 ]]; do
     --arch) ARCH_OVERRIDE="${2:?--arch 需要参数}"; shift 2 ;;
     --version) VERSION="${2:?--version 需要参数}"; shift 2 ;;
     --allow-any) ALLOW_ANY=1; shift ;;
+    --hardened) HARDENED=1; shift ;;
     --download) DOWNLOAD=1; shift ;;
     --no-download) DOWNLOAD=0; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
@@ -241,6 +245,22 @@ install_service() {
   run chmod 0600 "$CONFIG_DIR/secret.key"
 
   echo "==> 写 systemd unit"
+  local sandbox
+  if [[ "$HARDENED" -eq 1 ]]; then
+    sandbox="NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=true
+SystemCallArchitectures=native"
+  else
+    # 默认允许 su / sudo：
+    # - 不能开 NoNewPrivileges，否则 setuid 的 su/sudo 起不来
+    # - 不能 ProtectHome=true，否则切过去看不到 /home
+    # - strict 会把整个文件系统挂只读，切用户后写不了文件
+    sandbox="ProtectSystem=full"
+  fi
   local unit
   unit="[Unit]
 Description=Zero remote shell server (iroh)
@@ -257,15 +277,9 @@ Environment=HOME=$CONFIG_DIR
 ExecStart=$PREFIX/zero-server run --config $CONFIG_FILE
 Restart=on-failure
 RestartSec=2
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
+$sandbox
 PrivateTmp=true
 ReadWritePaths=$CONFIG_DIR
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
-LockPersonality=true
-MemoryDenyWriteExecute=true
-SystemCallArchitectures=native
 LimitNOFILE=65536
 
 [Install]
