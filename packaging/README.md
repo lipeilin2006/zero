@@ -33,7 +33,8 @@ sudo ./install-server.sh --bin ./target/release/zero-server
 }
 ```
 
-默认 unit 允许远端 `su`/`sudo`；加 `--hardened` 会启用严格沙箱（禁止 su/sudo）。
+默认 unit 不做文件系统沙箱，`su` / `sudo` / `apt` / `passwd` 跟 SSH 一样可用；
+加 `--hardened` 会启用严格沙箱（禁止 su/sudo，`/usr`、`/etc` 只读）。
 
 - `shell` 不填时按优先级选：Linux/macOS `fish > zsh > bash > sh`；Windows `pwsh > powershell > cmd`
 - `locale` 不填时用服务端 UTF-8 locale，否则 `C.UTF-8`

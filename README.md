@@ -65,8 +65,8 @@ sudo ./install-server.sh --bin ./target/release/zero-server
 sudo ./install-server.sh --allow-any
 ```
 
-默认的 systemd unit 允许在远端 shell 里 `su` / `sudo` 切换用户；
-如果更看重隔离，可以加 `--hardened`（会禁止 su/sudo，家目录不可见）。
+默认的 systemd unit 不做文件系统沙箱：`su` / `sudo` / `apt` / `passwd` 都跟 SSH 一样能用。
+如果更看重隔离，可以加 `--hardened`（会禁止 su/sudo，`/usr`、`/etc` 只读）。
 
 ### 配置文件
 

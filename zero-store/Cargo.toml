@@ -1,6 +1,6 @@
 [package]
 name = "zero-store"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2021"
 description = "Saved server list shared by zero CLI and zero-client"
 

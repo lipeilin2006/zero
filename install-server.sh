@@ -251,15 +251,17 @@ install_service() {
 ProtectSystem=strict
 ProtectHome=true
 MemoryDenyWriteExecute=true
+PrivateTmp=true
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 LockPersonality=true
-SystemCallArchitectures=native"
+SystemCallArchitectures=native
+ReadWritePaths=$CONFIG_DIR"
   else
-    # 默认允许 su / sudo：
-    # - 不能开 NoNewPrivileges，否则 setuid 的 su/sudo 起不来
-    # - 不能 ProtectHome=true，否则切过去看不到 /home
-    # - strict 会把整个文件系统挂只读，切用户后写不了文件
-    sandbox="ProtectSystem=full"
+    # 默认跟 SSH 一样：不做文件系统沙箱。
+    # apt / passwd / systemctl 这类命令需要写 /usr、/etc，一旦开
+    # ProtectSystem（哪怕是 full）就会报 Read-only file system；
+    # su 切换用户也绕不开，因为限制属于整个 service cgroup。
+    sandbox=""
   fi
   local unit
   unit="[Unit]
@@ -278,8 +280,6 @@ ExecStart=$PREFIX/zero-server run --config $CONFIG_FILE
 Restart=on-failure
 RestartSec=2
 $sandbox
-PrivateTmp=true
-ReadWritePaths=$CONFIG_DIR
 LimitNOFILE=65536
 
 [Install]
