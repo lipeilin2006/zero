@@ -30,6 +30,8 @@ const pickerOpen = ref(false);
 const splitMode = ref(null); // null | "row" | "col"
 const busy = ref(false);
 const status = ref("");
+const clientId = ref("");
+const idCopied = ref(false);
 
 const themeOverrides = {
   common: {
@@ -344,6 +346,11 @@ onMounted(async () => {
   await initSessionEvents();
   await loadServers();
   try {
+    clientId.value = await invoke("client_id");
+  } catch (error) {
+    uiLog(`client id failed: ${error}`);
+  }
+  try {
     const auto = await invoke("auto_endpoint");
     if (auto) {
       uiLog(`auto open ${auto.slice(0, 24)}…`);
@@ -355,6 +362,21 @@ onMounted(async () => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("zero:close-pane", onClosePaneEvent);
 });
+
+const shortClientId = computed(() =>
+  clientId.value ? `${clientId.value.slice(0, 10)}…${clientId.value.slice(-6)}` : "读取中…",
+);
+
+async function copyClientId() {
+  if (!clientId.value) return;
+  try {
+    await navigator.clipboard.writeText(clientId.value);
+    idCopied.value = true;
+    setTimeout(() => (idCopied.value = false), 1500);
+  } catch {
+    setStatus(`本机 ID：${clientId.value}`);
+  }
+}
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
@@ -372,6 +394,16 @@ onUnmounted(() => {
             <strong>ZERO</strong>
             <small>remote shell over iroh</small>
           </div>
+        </div>
+        <div class="topbar-right">
+          <button
+            class="client-id"
+            :title="clientId ? `${clientId}（点击复制）` : '正在读取本机 ID'"
+            @click="copyClientId"
+          >
+            <span class="client-id-label">{{ idCopied ? "已复制" : "本机 ID" }}</span>
+            <span class="client-id-value">{{ shortClientId }}</span>
+          </button>
         </div>
       </header>
 
@@ -671,6 +703,43 @@ body {
   letter-spacing: .08em;
   color: var(--text-dim);
   text-transform: uppercase;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0e141b;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.client-id:hover {
+  border-color: #38bdf8;
+  background: #101a24;
+}
+
+.client-id-label {
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.client-id-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--text);
 }
 
 /* main area */

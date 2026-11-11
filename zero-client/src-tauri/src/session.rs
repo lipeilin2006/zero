@@ -296,6 +296,12 @@ fn base64_encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
+/// 当前客户端的 endpoint id（和 CLI 共用同一把 key）。
+pub fn client_id() -> Result<String> {
+    let secret = load_or_create_secret(&key_path())?;
+    Ok(secret.public().to_string())
+}
+
 fn key_path() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))

@@ -17,6 +17,12 @@ fn save_servers(servers: Vec<SavedServer>) -> Result<(), String> {
     zero_store::save(&servers).map_err(|error| error.to_string())
 }
 
+/// 当前客户端的 endpoint id（给服务端做 `zero-server trust` 用）。
+#[tauri::command]
+fn client_id() -> Result<String, String> {
+    session::client_id().map_err(|error| error.to_string())
+}
+
 /// 调试用：把前端日志追加到 ZERO_UI_LOG 指向的文件（没设就什么都不做）。
 #[tauri::command]
 fn ui_log(line: String) {
@@ -108,6 +114,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ui_log,
+            client_id,
             auto_endpoint,
             list_servers,
             save_servers,
